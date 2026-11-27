@@ -2,7 +2,7 @@ extends Node
 ## Design tokens: the single source of truth for colour, type, spacing and motion.
 
 const OS_NAME := "FORGE"
-const OS_VERSION := "1.4.1"
+const OS_VERSION := "1.4.2"
 const STUDIO := "Blacksmith Games"
 
 # ---------- Colour ----------
@@ -67,8 +67,8 @@ func font(weight: int = 400, italic := false) -> Font:
 		var names := {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold"}
 		var w := clampi(int(round(weight / 100.0)) * 100, 100, 700)
 		var path := "res://fonts/Inter-%s.otf" % names[w]
-		if ResourceLoader.exists(path):
-			var ff: FontFile = load(path)
+		var ff: FontFile = load(path) if ResourceLoader.exists(path) else null
+		if ff != null:
 			var bf := ff.duplicate() as FontFile
 			bf.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
 			bf.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO

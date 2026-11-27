@@ -69,13 +69,18 @@ func show_data(d: Dictionary) -> void:
 	tl.size = Vector2(w - 104, 28)
 	tl.clip_text = true
 	if long_title:
-		tl.position.y = 14
-		tl.clip_text = false
 		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		tl.max_lines_visible = 2
 		tl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		tl.clip_text = true
+		tl.position = Vector2(84, 14)
+		tl.custom_minimum_size = Vector2(w - 104, 0)
 		tl.size = Vector2(w - 104, 56)
 	p.add_child(tl)
+	if long_title:
+		# Once in the tree, pin the width so the text wraps inside the card.
+		tl.size = Vector2(w - 104, 56)
+		tl.set_deferred("size", Vector2(w - 104, 56))
 	if body != "":
 		var bl := Tokens.label(body, 17, 500, Tokens.INK_DIM)
 		bl.position = Vector2(84, 50 if not long_title else 76)

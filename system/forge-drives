@@ -12,6 +12,8 @@ U=$(id -u forge 2>/dev/null || echo 1000); G=$(id -g forge 2>/dev/null || echo 1
 OPTS_NTFS3="uid=$U,gid=$G,umask=022"
 OPTS_NTFS3G="uid=$U,gid=$G,umask=022,windows_names"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+# One status line per drive on stdout ("sda1: ..."), shown by "Add a game" if a drive won't open.
+say() { echo "$(basename "$1"): $2"; }
 
 modprobe ntfs3 2>/dev/null || modprobe ntfs 2>/dev/null
 
@@ -78,7 +80,7 @@ while read -r line; do
 	case "$fs" in ntfs|exfat|vfat|ext4|btrfs|xfs|f2fs) ;; *) continue ;; esac
 	[ "${L_SIZE:-0}" -gt $((4 * 1073741824)) ] || continue        # skip tiny/system partitions
 	case "$L_PARTLABEL" in FORGE|FORGE_BOOT) continue ;; esac
-	is_mounted "$dev" && continue
+	is_mounted "$dev" && { say "$dev" "already open at $(findmnt -rn -o TARGET -S "$dev" | head -n1)"; continue; }
 
 	WIN=0
 	if [ "$fs" = ntfs ]; then
@@ -95,8 +97,11 @@ while read -r line; do
 	[ "$WIN" = 1 ] && [ -z "${L_LABEL:-}" ] && name="Windows"
 	dir=$(unique_dir "$name")
 	mkdir -p "$dir"
-	if ! try_mount "$dev" "$fs" "$dir"; then
+	if try_mount "$dev" "$fs" "$dir"; then
+		say "$dev" "opened at $dir"
+	else
 		log "$dev: could not mount ($fs)"
+		say "$dev" "failed: $(cat "$ERRDIR/$(basename "$dev")" 2>/dev/null || echo "no reason given")"
 		rmdir "$dir" 2>/dev/null
 	fi
 done < <(lsblk -lnbpP -o PATH,FSTYPE,LABEL,SIZE,TYPE,PARTLABEL)

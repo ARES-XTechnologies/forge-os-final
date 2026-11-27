@@ -86,7 +86,7 @@ func _scan_unmounted() -> void:
 func _mount_and_open(path: String) -> void:
 	shell.toast("Opening the drive…", "storage")
 	# Same root step FORGE runs at start-up: mounts every drive under /mnt/<name>.
-	Sys.run("sudo", ["-n", "/usr/lib/forge/forge-helper", "mount-drives"], func(_t: String, _c: int):
+	Sys.run("sudo", ["-n", "/usr/lib/forge/forge-helper", "mount-drives"], func(out: String, code: int):
 		Sys.run("findmnt", ["-rn", "-o", "TARGET", "-S", path], func(t: String, c: int):
 			var at := t.strip_edges().split("\n")[0] if c == 0 else ""
 			if at != "" and DirAccess.dir_exists_absolute(at):
@@ -94,6 +94,13 @@ func _mount_and_open(path: String) -> void:
 			else:
 				# Show the real reason the system gave (kept by forge-drives), so it can be fixed.
 				var why := Sys.read_text("/run/forge-drives/" + path.get_file()).strip_edges()
+				# What the drive helper said about this drive, or why the helper didn't run.
+				for line in out.split("\n", false):
+					if line.begins_with(path.get_file() + ":"):
+						why = line.substr(path.get_file().length() + 1).strip_edges()
+				if why == "":
+					var lines := out.strip_edges().split("\n", false)
+					why = ("helper error %d: %s" % [code, lines[-1]]) if code != 0 and not lines.is_empty() else ("helper error %d" % code if code != 0 else "the drive helper skipped it")
 				if why.length() > 90:
 					why = why.substr(0, 90) + "…"
 				shell.toast("Couldn't open that drive" + (": " + why if why != "" else ". If it's a Windows drive, shut Windows down fully and try again."), "info", Tokens.BAD)

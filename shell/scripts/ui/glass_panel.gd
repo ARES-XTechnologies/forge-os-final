@@ -66,6 +66,15 @@ func _init() -> void:
 	add_child(_rect, false, Node.INTERNAL_MODE_FRONT)
 
 func _ready() -> void:
+	# Glass inside other glass (a button on a dialog, a row on a panel) is always layered:
+	# it can't re-read the screen, or it would show what's *behind* the panel it sits on.
+	if not nested:
+		var a := get_parent()
+		while a:
+			if a is GlassPanel:
+				nested = true
+				break
+			a = a.get_parent()
 	resized.connect(_layout)
 	Config.changed.connect(_on_config)
 	_layout()

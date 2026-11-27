@@ -8,6 +8,7 @@ var _x: Spring
 var _a: Spring
 var _s: Spring
 var active := false
+var _out := 1.0           # leaving: a quick linear fade, so the old screen never lingers
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -30,6 +31,7 @@ func enter(dir: int) -> void:
 	_a.target = 1.0
 	_s.snap(0.97 if dir == 0 else 1.0)
 	_s.target = 1.0
+	_out = 1.0
 	on_enter(dir)
 
 func leave(dir: int) -> void:
@@ -47,10 +49,12 @@ func _process(dt: float) -> void:
 	var a := _a.step(dt)
 	var s := _s.step(dt)
 	position.x = x
-	modulate.a = clampf(a, 0.0, 1.0)
+	if not active:
+		_out = maxf(_out - dt / 0.18, 0.0)
+	modulate.a = clampf(minf(a, _out), 0.0, 1.0)
 	pivot_offset = size * 0.5
 	scale = Vector2(s, s)
-	if not active and a < 0.01 and visible:
+	if not active and (a < 0.01 or _out <= 0.0) and visible:
 		visible = false
 	if visible:
 		tick(dt)

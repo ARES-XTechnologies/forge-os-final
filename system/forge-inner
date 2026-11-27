@@ -53,6 +53,31 @@ big_picture() {
 	start_steam
 }
 
+# The UI's import cache (fonts, pictures, effects in .godot/) must be complete, or FORGE
+# shows the wrong font and missing parts. It's rebuilt after every update; if that was
+# interrupted (power cut, forced restart), rebuild it now before the UI starts.
+import_ok() {
+	local imp="$SHELL_DIR/.godot/imported"
+	[ -f "$SHELL_DIR/.godot/forge-import.ok" ] || return 1
+	[ -d "$imp" ] || return 1
+	# no empty (half-written) files
+	[ -z "$(find "$imp" -type f -size 0 -print -quit 2>/dev/null)" ] || return 1
+	# every resource that needs importing has its imported file
+	local n_src n_imp
+	n_src=$(find "$SHELL_DIR" -path "$SHELL_DIR/.godot" -prune -o -name '*.import' -print | wc -l)
+	n_imp=$(find "$imp" -type f ! -name '*.md5' | wc -l)
+	[ "$n_imp" -ge "$n_src" ]
+}
+if ! import_ok; then
+	echo "[forge] import cache incomplete: rebuilding it" >> "$LOG"
+	rm -f "$SHELL_DIR/.godot/forge-import.ok"
+	if godot --headless --path "$SHELL_DIR" --import >> "$LOG" 2>&1; then
+		sync
+		touch "$SHELL_DIR/.godot/forge-import.ok"
+		sync
+	fi
+fi
+
 start_steam
 
 crashes=0

@@ -12,6 +12,19 @@ STAGED=/home/forge/.local/share/forge/update/staged
 
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
+# Rebuild the UI's import cache and make sure it's really on disk before anything restarts
+# (a power cut right after an update used to leave it half-written: wrong font, missing parts).
+reimport() {
+	rm -f /opt/forge/shell/.godot/forge-import.ok
+	if sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >> "$LOG" 2>&1; then
+		sync
+		sudo -u forge touch /opt/forge/shell/.godot/forge-import.ok
+	else
+		log "import failed: FORGE rebuilds it when it next starts"
+	fi
+	sync
+}
+
 case "${1:-}" in
 	update)
 		# "Repair system": reinstall FORGE's system parts and bring every package back to the
@@ -22,6 +35,7 @@ case "${1:-}" in
 			flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOG" 2>&1
 			flatpak install --system -y --noninteractive flathub com.heroicgameslauncher.hgl >> "$LOG" 2>&1 || log "heroic install skipped"
 		fi
+		reimport
 		;;
 	apply-update)
 		# A full FORGE update: the app, the system parts and every OS package.
@@ -43,7 +57,7 @@ case "${1:-}" in
 			exit 1
 		fi
 		# rebuild the shader cache for the new version
-		sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >/dev/null 2>&1 || true
+		reimport
 		;;
 	rollback)
 		# Undo: the previous FORGE, its system parts, and its package snapshot (downgrades).
@@ -54,6 +68,7 @@ case "${1:-}" in
 		mv /opt/forge.prev /opt/forge
 		chown -R forge:forge /opt/forge
 		bash /opt/forge/system/forge-system-install || log "rollback: package step failed"
+		reimport
 		;;
 	mount-drives)
 		/usr/lib/forge/forge-drives

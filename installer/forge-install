@@ -421,7 +421,7 @@ chown -R forge:forge /home/forge/ROMs /home/forge/Pictures /home/forge/Videos
 
 # Pre-build the console UI's shader cache so the first boot is instant
 echo "importing console UI"
-timeout 600 sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >/dev/null 2>&1 || echo "UI import skipped (runs on first boot)"
+if timeout 600 sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >/dev/null 2>&1; then sync; sudo -u forge touch /opt/forge/shell/.godot/forge-import.ok; else echo "UI import skipped (runs on first boot)"; fi
 mkdir -p /var/lib/forge && date > /var/lib/forge/installed
 echo "chroot setup finished"
 CHROOT

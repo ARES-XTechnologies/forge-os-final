@@ -119,8 +119,8 @@ func _process(dt: float) -> void:
 	_glass.tint = Tokens.ACCENT.lerp(Color.WHITE, 0.25) if (primary and f > 0.05) or sel > 0.05 else Color(0.62, 0.72, 1.0)
 	_glass.press = absf(pr)
 	var ink := Tokens.INK if (f > 0.3 or sel > 0.5) else Tokens.INK_DIM
-	if primary and f > 0.5:
-		ink = Color("0b1020")
+	if primary:
+		ink = Tokens.INK        # primary buttons read as clearly as the others (white text)
 	_label.add_theme_color_override("font_color", ink)
 	_icon.color = ink
 	if _shine >= 0.0:

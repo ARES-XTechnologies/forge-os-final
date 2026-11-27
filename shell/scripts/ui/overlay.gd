@@ -9,6 +9,7 @@ var _open: Spring
 var from_offset := Vector2(0, 80)     # where it slides in from
 var open_scale := 0.94
 var covers_screen := false            # full-screen pages hide what's underneath
+var _closing_t := 0.0
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -40,6 +41,10 @@ func close() -> void:
 
 func _process(dt: float) -> void:
 	var o := _open.step(dt)
+	if closing:
+		# Never linger: fully gone within a quarter of a second, whatever the spring does.
+		_closing_t += dt
+		o = minf(o, maxf(1.0 - _closing_t / 0.25, 0.0))
 	animate(o, dt)
 	if closing and o < 0.03:
 		queue_free()
