@@ -1,0 +1,42 @@
+#!/bin/bash
+# FORGE OS — FSR for every game.
+# Every game starts through this: Steam games via their launch options
+# ("/usr/lib/forge/forge-fsr %command%", added by FORGE), your own games via forge-run.
+#
+#   Off (default)  the game starts exactly as it would without FORGE: native resolution.
+#   Balanced       renders at 83% and FSR 1 upscales to your screen.
+#   Performance    renders at 67% and FSR 1 upscales to your screen.
+#
+# The mode comes from Settings › Performance (all games) or a game's own options (one game):
+#   ~/.config/forge/fsr.conf        MODE=off|balanced|performance
+#   ~/.config/forge/fsr-games.conf  <appid>=off|balanced|performance   (overrides, one per line)
+# It's read at launch, so a change applies from the next time a game starts.
+CONF="$HOME/.config/forge"
+MODE=off
+# shellcheck disable=SC1091
+[ -f "$CONF/fsr.conf" ] && . "$CONF/fsr.conf"
+APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-${FORGE_APPID:-}}}"
+if [ -n "$APPID" ] && [ -f "$CONF/fsr-games.conf" ]; then
+	own=$(grep -E "^${APPID}=" "$CONF/fsr-games.conf" | tail -n1 | cut -d= -f2)
+	[ -n "$own" ] && MODE="$own"
+fi
+
+case "$MODE" in
+	balanced) PCT=83 ;;
+	performance) PCT=67 ;;
+	*) exec "$@" ;;
+esac
+command -v gamescope >/dev/null || exec "$@"
+
+# Output size: the console's resolution from Settings › Display.
+WIDTH=1920; HEIGHT=1080; REFRESH=60
+# shellcheck disable=SC1091
+[ -f "$CONF/session.conf" ] && . "$CONF/session.conf"
+RW=$(( WIDTH * PCT / 100 / 2 * 2 ))
+RH=$(( HEIGHT * PCT / 100 / 2 * 2 ))
+
+ARGS=(-w "$RW" -h "$RH" -W "$WIDTH" -H "$HEIGHT" -r "$REFRESH" -F fsr -f)
+# Inside the console's own gamescope, the game's gamescope draws through X (most reliable).
+gamescope --help 2>&1 | grep -q -- '--backend' && ARGS+=(--backend sdl)
+echo "[forge-fsr] $MODE: ${RW}x${RH} -> ${WIDTH}x${HEIGHT} (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log" 2>/dev/null
+exec gamescope "${ARGS[@]}" -- "$@"

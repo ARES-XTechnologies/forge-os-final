@@ -1,0 +1,70 @@
+#!/bin/bash
+# FORGE OS — privileged helper. The console UI may run exactly these actions as root
+# (allowed by /etc/sudoers.d/forge). Nothing else.
+#   update          repair: reinstall system parts, re-sync packages to the tested snapshot
+#   apply-update    install a FORGE update the UI downloaded: app + system + all packages
+#   rollback        go back to the previous FORGE version (app, system and packages)
+#   timezone Area/City
+#   mount-drives    mount every other drive under /mnt (same as at start-up)
+set -u
+LOG=/var/log/forge-helper.log
+STAGED=/home/forge/.local/share/forge/update/staged
+
+log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+
+case "${1:-}" in
+	update)
+		# "Repair system": reinstall FORGE's system parts and bring every package back to the
+		# snapshot this release was tested with (also installs anything missing).
+		log "repair / system update"
+		/usr/lib/forge/forge-system-install || exit 1
+		if command -v flatpak >/dev/null; then
+			flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> "$LOG" 2>&1
+			flatpak install --system -y --noninteractive flathub com.heroicgameslauncher.hgl >> "$LOG" 2>&1 || log "heroic install skipped"
+		fi
+		;;
+	apply-update)
+		# A full FORGE update: the app, the system parts and every OS package.
+		[ -f "$STAGED/shell/project.godot" ] || { log "apply-update: nothing staged"; exit 2; }
+		log "apply-update"
+		rm -rf /opt/forge.prev
+		[ -d /opt/forge ] && mv /opt/forge /opt/forge.prev
+		cp -a "$STAGED" /opt/forge || { mv /opt/forge.prev /opt/forge; exit 1; }
+		# keep the update channel file across updates
+		[ -f /opt/forge.prev/channel.json ] && cp /opt/forge.prev/channel.json /opt/forge/channel.json
+		chmod +x /opt/forge/system/* 2>/dev/null
+		chown -R forge:forge /opt/forge
+		rm -rf "$STAGED"
+		# The new release installs its own system side (and packages) with its own script.
+		if ! bash /opt/forge/system/forge-system-install; then
+			log "apply-update: system update failed, going back"
+			rm -rf /opt/forge.bad; mv /opt/forge /opt/forge.bad; mv /opt/forge.prev /opt/forge
+			bash /opt/forge/system/forge-system-install --no-packages >/dev/null
+			exit 1
+		fi
+		# rebuild the shader cache for the new version
+		sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >/dev/null 2>&1 || true
+		;;
+	rollback)
+		# Undo: the previous FORGE, its system parts, and its package snapshot (downgrades).
+		[ -d /opt/forge.prev ] || exit 2
+		log "rollback"
+		rm -rf /opt/forge.bad
+		mv /opt/forge /opt/forge.bad
+		mv /opt/forge.prev /opt/forge
+		chown -R forge:forge /opt/forge
+		bash /opt/forge/system/forge-system-install || log "rollback: package step failed"
+		;;
+	mount-drives)
+		/usr/lib/forge/forge-drives
+		;;
+	timezone)
+		tz="${2:-}"
+		[ -f "/usr/share/zoneinfo/$tz" ] || exit 2
+		timedatectl set-timezone "$tz"
+		;;
+	*)
+		echo "usage: forge-helper update | apply-update | rollback | timezone <Area/City>" >&2
+		exit 2
+		;;
+esac

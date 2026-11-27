@@ -1,0 +1,82 @@
+#!/bin/bash
+# FORGE OS — session supervisor
+# Runs on tty1 after autologin. Starts Gamescope with the console UI inside it and
+# restarts it if anything goes wrong. Also performs power actions requested by the UI
+# (after Steam has shut down cleanly so games can save).
+
+CONF_DIR="$HOME/.config/forge"
+LOG_DIR="$HOME/.local/share/forge/logs"
+mkdir -p "$CONF_DIR" "$LOG_DIR"
+LOG="$LOG_DIR/session.log"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+ACTION_FILE="$XDG_RUNTIME_DIR/forge-action"
+FIRST_FILE="$XDG_RUNTIME_DIR/forge-first-boot-done"
+
+log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+
+# Keep the last log small
+[ -f "$LOG" ] && tail -n 2000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+log "session start"
+
+steam_shutdown() {
+	if pgrep -x steam >/dev/null; then
+		log "asking Steam to shut down"
+		steam -shutdown >/dev/null 2>&1 &
+		for _ in $(seq 1 20); do
+			pgrep -x steam >/dev/null || break
+			sleep 0.5
+		done
+		pkill -x steam 2>/dev/null
+	fi
+}
+
+fails=0
+while true; do
+	# Defaults, then whatever Settings › Display saved.
+	WIDTH=1920; HEIGHT=1080; REFRESH=60; HDR=0; VRR=0; INTRO=1
+	# shellcheck disable=SC1091
+	[ -f "$CONF_DIR/session.conf" ] && . "$CONF_DIR/session.conf"
+
+	ARGS=(-W "$WIDTH" -H "$HEIGHT" -w "$WIDTH" -h "$HEIGHT" -r "$REFRESH" -f --rt --xwayland-count 2)
+	[ "$VRR" = "1" ] && ARGS+=(--adaptive-sync)
+	[ "$HDR" = "1" ] && ARGS+=(--hdr-enabled)
+
+	rm -f "$ACTION_FILE"
+	log "gamescope ${ARGS[*]}"
+	started=$(date +%s)
+	gamescope "${ARGS[@]}" -- /usr/lib/forge/forge-inner >> "$LOG" 2>&1
+	gs_code=$?
+	action="$(cat "$ACTION_FILE" 2>/dev/null)"
+	log "gamescope exited ($gs_code), action='$action'"
+
+	case "$action" in
+		poweroff) steam_shutdown; systemctl poweroff; exit 0 ;;
+		reboot)   steam_shutdown; systemctl reboot; exit 0 ;;
+		restart)  fails=0; continue ;;
+	esac
+
+	# Unexpected exit: back off if it keeps failing so we never spin.
+	if [ $(( $(date +%s) - started )) -lt 20 ]; then
+		fails=$((fails + 1))
+	else
+		fails=0
+	fi
+	if [ "$fails" -ge 3 ]; then
+		log "gamescope keeps failing; trying a safe 1080p60 mode"
+		cat > "$CONF_DIR/session.conf" <<EOF
+# Reset to safe defaults after repeated failures
+WIDTH=1920
+HEIGHT=1080
+REFRESH=60
+HDR=0
+VRR=0
+INTRO=0
+EOF
+		sleep 2
+	fi
+	if [ "$fails" -ge 6 ]; then
+		log "still failing; waiting 30 s before trying again"
+		sleep 30
+		fails=0
+	fi
+done

@@ -1,0 +1,12 @@
+[Unit]
+Description=FORGE OS: full performance (CPU and GPU at full speed)
+After=systemd-modules-load.service power-profiles-daemon.service
+Wants=power-profiles-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/forge/forge-tune --boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

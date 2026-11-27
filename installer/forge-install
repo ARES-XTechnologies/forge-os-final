@@ -1,0 +1,439 @@
+#!/bin/bash
+# FORGE OS — all-in-one installer.
+# Runs automatically when the FORGE USB boots. Connects to the internet, wipes the
+# chosen drive, installs Arch Linux + graphics drivers + Steam + the FORGE console UI,
+# and sets the machine to boot straight into it.
+#
+# Blacksmith Games
+
+set -o pipefail
+SRC=/opt/forge                      # FORGE files on the USB
+TARGET=/mnt
+LOG=/root/forge-install.log
+BACKTITLE="FORGE OS Installer  ·  Blacksmith Games"
+DIALOG=(dialog --backtitle "$BACKTITLE" --colors)
+exec 3>&1
+
+log() { echo "[$(date '+%T')] $*" >> "$LOG"; }
+
+die() {
+	"${DIALOG[@]}" --title " Something went wrong " --msgbox "\n$1\n\nDetails were saved to $LOG.\nTake a photo of this screen and send it to support." 14 70
+	exit 1
+}
+
+# Bigger console font for TVs
+setfont ter-128b 2>/dev/null || setfont ter-v32b 2>/dev/null || true
+
+# ------------------------------------------------------------------------- welcome
+"${DIALOG[@]}" --title " Welcome to FORGE OS " --yes-label "Start" --no-label "Exit to shell" --yesno "\n\
+  \Zb\Z3FORGE OS\Zn turns this PC into a game console.\n\n\
+  This installer will:\n\
+    • connect to the internet\n\
+    • install into free space on a drive (keeping your files)\n\
+      or use a whole empty drive\n\
+    • install drivers, Steam and the FORGE console\n\n\
+  It takes about 10–20 minutes depending on your internet.\n\
+  Keep a keyboard plugged in until it's done." 18 66 || exit 0
+
+# ------------------------------------------------------------------------- checks
+[ -d /sys/firmware/efi ] || die "This PC started in Legacy/CSM mode.\nRestart, open the BIOS, turn on UEFI boot (turn off CSM), and boot the USB again."
+
+# ------------------------------------------------------------------------- internet
+online() { ping -c1 -W3 archlinux.org >/dev/null 2>&1 || ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; }
+
+wifi_setup() {
+	local dev
+	dev=$(iw dev 2>/dev/null | awk '/Interface/{print $2; exit}')
+	[ -n "$dev" ] || { "${DIALOG[@]}" --msgbox "\nNo Wi-Fi adapter found.\nPlug in an Ethernet cable and choose Retry." 9 60; return 1; }
+	iwctl station "$dev" scan >/dev/null 2>&1
+	sleep 4
+	local list=() line ssid
+	while IFS= read -r line; do
+		ssid=$(echo "$line" | sed -E 's/\x1b\[[0-9;]*m//g' | sed -E 's/^[ >]+//' | awk '{$NF=""; $(NF)=""; print}' | sed -E 's/ +(psk|open|8021x|wep).*$//' | sed -E 's/[ ]+$//')
+		[ -n "$ssid" ] && list+=("$ssid" "")
+	done < <(iwctl station "$dev" get-networks 2>/dev/null | tail -n +5 | head -n 30)
+	[ ${#list[@]} -gt 0 ] || { "${DIALOG[@]}" --msgbox "\nNo Wi-Fi networks found. Move closer to the router and choose Retry." 8 60; return 1; }
+	local pick pass
+	pick=$("${DIALOG[@]}" --title " Wi-Fi " --menu "\nChoose your network:" 22 64 14 "${list[@]}" 2>&1 1>&3) || return 1
+	pass=$("${DIALOG[@]}" --title " Wi-Fi " --insecure --passwordbox "\nPassword for \Zb$pick\Zn (leave empty if none):" 10 64 2>&1 1>&3) || return 1
+	if [ -n "$pass" ]; then
+		iwctl --passphrase "$pass" station "$dev" connect "$pick" >>"$LOG" 2>&1
+	else
+		iwctl station "$dev" connect "$pick" >>"$LOG" 2>&1
+	fi
+	"${DIALOG[@]}" --infobox "\nConnecting to $pick…" 5 50
+	for _ in $(seq 1 15); do online && break; sleep 1; done
+	online
+}
+
+until online; do
+	choice=$("${DIALOG[@]}" --title " Internet needed " --menu "\nFORGE needs the internet to download drivers and Steam.\nEthernet is plugged in? Choose Retry." 15 66 3 \
+		wifi "Connect to Wi-Fi" retry "Retry (Ethernet)" quit "Exit installer" 2>&1 1>&3) || exit 0
+	case "$choice" in
+		wifi) wifi_setup ;;
+		retry) sleep 2 ;;
+		quit) exit 0 ;;
+	esac
+done
+log "online"
+
+# ------------------------------------------------------------------------- drive
+# Hide the USB stick FORGE booted from.
+USB_PART=$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null)
+USB_DISK=""
+[ -n "$USB_PART" ] && USB_DISK="/dev/$(lsblk -no PKNAME "$USB_PART" 2>/dev/null | head -n1)"
+
+MIN_GIB=40
+
+# Largest unallocated block on a drive, in GiB (0 if none / not GPT).
+free_gib() {
+	local ss first last
+	[ "$(lsblk -dno PTTYPE "$1" 2>/dev/null)" = "gpt" ] || { echo 0; return; }
+	ss=$(blockdev --getss "$1")
+	first=$(sgdisk -F "$1" 2>/dev/null | tail -n1)
+	last=$(sgdisk -E "$1" 2>/dev/null | tail -n1)
+	if [[ "$first" =~ ^[0-9]+$ && "$last" =~ ^[0-9]+$ && "$last" -gt "$first" ]]; then
+		echo $(( (last - first) * ss / 1073741824 ))
+	else
+		echo 0
+	fi
+}
+
+# What's already on a drive, in plain words: "Windows", "NTFS data", "empty"…
+contents_of() {
+	local fs
+	fs=$(lsblk -lno FSTYPE "$1" 2>/dev/null | grep -v '^$' | sort -u | tr '\n' ' ')
+	if lsblk -lno PARTTYPENAME "$1" 2>/dev/null | grep -qi "microsoft reserved"; then
+		[ -n "$(lsblk -lno PARTTYPENAME "$1" | grep -i 'EFI')" ] && { echo "Windows"; return; }
+	fi
+	[ -z "$fs" ] && { echo "empty"; return; }
+	echo "$fs" | sed 's/ntfs/NTFS (Windows files)/; s/vfat/FAT/; s/ $//'
+}
+
+disks=()
+while read -r name size model; do
+	[ -z "$name" ] && continue
+	[ -n "$USB_DISK" ] && [ "$name" = "$USB_DISK" ] && continue
+	fg=$(free_gib "$name")
+	disks+=("$name" "$size ${model:-Drive}  ·  ${fg} GB free  ·  $(contents_of "$name")")
+done < <(lsblk -dpno NAME,SIZE,MODEL -e 7,11,1)
+[ ${#disks[@]} -gt 0 ] || die "No drive found to install on."
+
+DISK=$("${DIALOG[@]}" --title " Choose the drive " --menu "\nWhich drive should FORGE go on?\n\"GB free\" is empty, unallocated space (made with Shrink Volume in Windows)." 20 100 8 "${disks[@]}" 2>&1 1>&3) || exit 0
+
+FREE=$(free_gib "$DISK")
+PTTYPE=$(lsblk -dno PTTYPE "$DISK" 2>/dev/null)
+
+# FORGE partitions left by an earlier install (or an earlier try that stopped).
+OLD_BOOT=$(lsblk -lnpo NAME,PARTLABEL "$DISK" 2>/dev/null | awk '$2=="FORGE_BOOT"{print $1; exit}')
+OLD_ROOT=$(lsblk -lnpo NAME,PARTLABEL "$DISK" 2>/dev/null | awk '$2=="FORGE"{print $1; exit}')
+modes=()
+if [ -n "$OLD_BOOT" ] && [ -n "$OLD_ROOT" ] && [ "$OLD_BOOT" != "$OLD_ROOT" ]; then
+	OLD_SIZE=$(lsblk -dno SIZE "$OLD_ROOT")
+	modes+=(reuse "Reinstall FORGE into its own partitions ($OLD_SIZE)  —  keeps all your files")
+fi
+if [ "$FREE" -ge "$MIN_GIB" ]; then
+	modes+=(keep "Install into the ${FREE} GB of free space  —  keeps all your files")
+fi
+modes+=(erase "Erase the WHOLE drive  —  deletes everything on it")
+if [ -n "${OLD_SIZE:-}" ]; then
+	note="\nFORGE is already on this drive (maybe from an earlier try).\nChoose \"reuse\" to install it again in the same place."
+elif [ "$FREE" -lt "$MIN_GIB" ] && [ "$PTTYPE" = "gpt" ]; then
+	note="\nThis drive has only ${FREE} GB of free space (FORGE needs at least ${MIN_GIB} GB).\nTo keep your files, shrink a partition in Windows first (Disk Management › Shrink Volume)."
+elif [ "$PTTYPE" != "gpt" ] && [ -n "$PTTYPE" ]; then
+	note="\nThis drive uses the older MBR layout, so FORGE can only use it by erasing it."
+else
+	note=""
+fi
+MODE=$("${DIALOG[@]}" --title " How should FORGE use $DISK? " --menu "$note" 16 100 3 "${modes[@]}" 2>&1 1>&3) || exit 0
+
+if [ "$MODE" = "reuse" ]; then
+	"${DIALOG[@]}" --title " Last check " --defaultno --yes-label "Reinstall" --no-label "Cancel" --yesno "\n\
+  FORGE will be installed again into its own partitions:\n\
+      $OLD_BOOT  (FORGE_BOOT)\n      $OLD_ROOT  (FORGE, $OLD_SIZE)\n\n\
+  Only these two are formatted.\n\
+  \Zb\Z2Not touched:\Zn everything else on this drive and every other drive." 16 80 || exit 0
+elif [ "$MODE" = "keep" ]; then
+	parts=$(lsblk -lnpo NAME,SIZE,FSTYPE,LABEL "$DISK" | tail -n +2 | sed 's/^/      /')
+	"${DIALOG[@]}" --title " Last check " --defaultno --yes-label "Install" --no-label "Cancel" --yesno "\n\
+  FORGE will be installed into the \Zb${FREE} GB of free space\Zn on $DISK.\n\n\
+  \Zb\Z2Not touched:\Zn everything already on this drive:\n$parts\n\n\
+  \Zb\Z2Not touched:\Zn every other drive, including Windows.\n\n\
+  Back up anything you can't lose before changing any drive." 22 90 || exit 0
+else
+	"${DIALOG[@]}" --title " Last check " --defaultno --yes-label "Erase and install" --no-label "Cancel" --yesno "\n\Zb\Z1All files on $DISK will be deleted forever.\Zn\n\n$(lsblk -lnpo NAME,SIZE,FSTYPE,LABEL "$DISK")\n\nAre you sure?" 18 80 || exit 0
+fi
+log "disk=$DISK mode=$MODE free=${FREE}GiB"
+
+# ------------------------------------------------------------------------- password
+PASS=""
+while [ -z "$PASS" ]; do
+	PASS=$("${DIALOG[@]}" --title " Console password " --insecure --passwordbox "\nSet a password for this console.\nYou only need it for maintenance, never to play." 11 64 2>&1 1>&3) || exit 0
+	PASS2=$("${DIALOG[@]}" --title " Console password " --insecure --passwordbox "\nType it again:" 9 64 2>&1 1>&3) || exit 0
+	[ "$PASS" = "$PASS2" ] || { "${DIALOG[@]}" --msgbox "\nPasswords didn't match. Try again." 7 50; PASS=""; }
+done
+
+# ------------------------------------------------------------------------- hardware
+TZ_AUTO=$(curl -fsS --max-time 5 https://ipapi.co/timezone 2>/dev/null)
+[ -f "/usr/share/zoneinfo/$TZ_AUTO" ] || TZ_AUTO="UTC"
+
+GPU_INFO=$(lspci -nn | grep -Ei 'vga|3d|display')
+GPU_PKGS=()
+KERNEL_ARGS="quiet loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 splash"
+NVIDIA=0
+if echo "$GPU_INFO" | grep -qi nvidia; then
+	# NVIDIA's driver in Arch only supports GTX 16-series / RTX 20-series and newer. Older
+	# cards (GTX 900/1000, Titan X/Xp, Quadro M/P) get the open-source Mesa driver instead:
+	# it works, but much slower. An AMD card is the best choice for FORGE.
+	if echo "$GPU_INFO" | grep -Eqi 'GTX (7[45]0|9[0-9]{2}|10[0-9]{2})|GT (7[0-9]{2}|10[0-9]{2})|TITAN X|Quadro [MP][0-9]'; then
+		GPU_PKGS+=(mesa lib32-mesa vulkan-nouveau lib32-vulkan-nouveau)
+		log "older NVIDIA card: using the open-source driver"
+	else
+		NVIDIA=1
+		GPU_PKGS+=(nvidia-open nvidia-utils lib32-nvidia-utils libva-nvidia-driver)
+		KERNEL_ARGS+=" nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
+	fi
+fi
+# Word match: "NVIDIA Corporation" contains "ati", so a plain substring test is wrong.
+if echo "$GPU_INFO" | grep -Eqi '\b(AMD|ATI)\b|radeon'; then
+	GPU_PKGS+=(mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon)
+fi
+if echo "$GPU_INFO" | grep -Eqi '\bintel\b'; then
+	GPU_PKGS+=(mesa lib32-mesa vulkan-intel lib32-vulkan-intel intel-media-driver)
+fi
+[ ${#GPU_PKGS[@]} -gt 0 ] || GPU_PKGS+=(mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon vulkan-intel lib32-vulkan-intel)
+UCODE=()
+grep -q GenuineIntel /proc/cpuinfo && UCODE=(intel-ucode)
+grep -q AuthenticAMD /proc/cpuinfo && UCODE=(amd-ucode)
+log "gpu: $GPU_INFO"
+log "gpu packages: ${GPU_PKGS[*]}"
+
+PKGS=(base linux linux-firmware "${UCODE[@]}" sudo efibootmgr
+	networkmanager iwd bluez bluez-utils
+	pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber lib32-pipewire
+	"${GPU_PKGS[@]}" vulkan-icd-loader lib32-vulkan-icd-loader
+	gamescope xorg-xwayland steam mangohud lib32-mangohud gamemode lib32-gamemode
+	power-profiles-daemon godot xorg-xprop udisks2 flatpak dialog
+	inter-font noto-fonts noto-fonts-cjk noto-fonts-emoji ttf-liberation
+	git nano less pciutils usbutils ntfs-3g exfatprogs dosfstools terminus-font
+	scx-scheds zram-generator)
+
+# ------------------------------------------------------------------------- install
+step() { echo "XXX"; echo "$1"; echo "\n$2"; echo "XXX"; log "STEP $1: $2"; }
+
+install_all() {
+	set -eE
+	trap 'log "FAILED (line $LINENO): $BASH_COMMAND"' ERR
+	step 3 "Preparing the drive…"
+	umount -R "$TARGET" >>"$LOG" 2>&1 || true
+	if [ "$MODE" = "reuse" ]; then
+		P1="$OLD_BOOT"; P2="$OLD_ROOT"
+		umount "$P1" "$P2" >>"$LOG" 2>&1 || true
+	elif [ "$MODE" = "keep" ]; then
+		# Only the unallocated block is used. Nothing existing is moved, resized or formatted.
+		ss=$(blockdev --getss "$DISK")
+		first=$(sgdisk -F "$DISK" | tail -n1)
+		last=$(sgdisk -E "$DISK" | tail -n1)
+		esp_end=$(( first + 536870912 / ss - 1 ))
+		before=$(lsblk -lnpo NAME "$DISK" | sort)
+		sgdisk -n "0:${first}:${esp_end}" -t 0:ef00 -c 0:FORGE_BOOT "$DISK" >>"$LOG" 2>&1
+		sgdisk -n "0:$(( esp_end + 1 )):${last}" -t 0:8300 -c 0:FORGE "$DISK" >>"$LOG" 2>&1
+		partprobe "$DISK" >>"$LOG" 2>&1; udevadm settle; sleep 2
+		newparts=$(comm -13 <(echo "$before") <(lsblk -lnpo NAME "$DISK" | sort))
+		P1=""; P2=""
+		for np in $newparts; do
+			case "$(lsblk -no PARTLABEL "$np")" in
+				FORGE_BOOT) P1="$np" ;;
+				FORGE) P2="$np" ;;
+			esac
+		done
+		if [ -z "$P1" ] || [ -z "$P2" ]; then
+			# Labels not visible yet: the boot partition is the lower-numbered new one.
+			sorted=$(for np in $newparts; do echo "$(cat /sys/class/block/$(basename "$np")/partition) $np"; done | sort -n | awk '{print $2}')
+			P1=$(echo "$sorted" | sed -n 1p); P2=$(echo "$sorted" | sed -n 2p)
+		fi
+		[ -n "$P1" ] && [ -n "$P2" ] && [ "$P1" != "$P2" ] || { log "new partitions not found: $newparts"; exit 1; }
+	else
+		wipefs -af "$DISK" >>"$LOG" 2>&1
+		sgdisk -Z "$DISK" >>"$LOG" 2>&1
+		sgdisk -n1:0:+1G -t1:ef00 -c1:FORGE_BOOT -n2:0:0 -t2:8300 -c2:FORGE "$DISK" >>"$LOG" 2>&1
+		partprobe "$DISK" >>"$LOG" 2>&1; sleep 2
+		if [[ "$DISK" =~ (nvme|mmcblk|loop) ]]; then P1="${DISK}p1"; P2="${DISK}p2"; else P1="${DISK}1"; P2="${DISK}2"; fi
+	fi
+	log "boot=$P1 root=$P2"
+	mkfs.fat -F32 -n FORGEBOOT "$P1" >>"$LOG" 2>&1
+	mkfs.ext4 -F -L FORGE "$P2" >>"$LOG" 2>&1
+	mount "$P2" "$TARGET"
+	mount --mkdir "$P1" "$TARGET/boot"
+
+	step 8 "Getting the fastest download servers…"
+	sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' /etc/pacman.conf
+	sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf
+	reflector --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist >>"$LOG" 2>&1 || true
+	# Pin packages to the snapshot this FORGE release was tested with, so every console gets
+	# exactly the same, known-good versions (pacstrap copies this mirror list to the new system).
+	SNAP=$(grep -v '^#' "$SRC/system/os-snapshot" 2>/dev/null | head -n1 | tr -d '[:space:]')
+	if [ -n "$SNAP" ] && curl -fsI --max-time 20 "https://archive.archlinux.org/repos/$SNAP/core/os/x86_64/core.db" >/dev/null 2>&1; then
+		printf '# FORGE OS: packages pinned to the %s snapshot (tested with this release)\nServer = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$SNAP" "$SNAP" > /etc/pacman.d/mirrorlist
+		log "packages pinned to snapshot $SNAP"
+	else
+		log "snapshot '$SNAP' unreachable: installing from the fastest current mirrors"
+	fi
+	pacman -Syy --noconfirm >>"$LOG" 2>&1
+
+	step 12 "Downloading and installing (this is the long part)…"
+	pacstrap -K "$TARGET" "${PKGS[@]}" >>"$LOG" 2>&1
+	cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
+	genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
+
+	step 78 "Connecting your other drives…"
+	# Your other drives (Windows NTFS, exFAT, Linux) are mounted at every start-up by
+	# forge-drives.service under /mnt/<name> (installed with the other system parts below).
+	# Read-write, except the Windows system partition, which stays read-only.
+	# Older FORGE versions listed the drives in fstab; those lines are no longer used.
+	sed -i '/^# FORGE: your other drives/,$ { /ntfs3/d }' "$TARGET/etc/fstab"
+
+	step 80 "Setting up the console…"
+	ROOT_UUID=$(blkid -s UUID -o value "$P2")
+	mkdir -p "$TARGET/opt"
+	cp -a "$SRC" "$TARGET/opt/forge"
+	chmod +x "$TARGET/opt/forge/system/"* 2>/dev/null
+	# System parts (root helper, drives, tuning, services, sudoers) are installed inside the
+	# new system by forge-system-install, the same script every FORGE update uses.
+
+	printf 'forge:%s\nroot:%s\n' "$PASS" "$PASS" > "$TARGET/root/.pw"
+	chmod 600 "$TARGET/root/.pw"
+	cat > "$TARGET/root/forge-chroot.sh" <<CHROOT
+set -e
+ln -sf /usr/share/zoneinfo/$TZ_AUTO /etc/localtime
+hwclock --systohc || true
+sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+locale-gen
+echo 'LANG=en_US.UTF-8' > /etc/locale.conf
+echo 'FONT=ter-128b' > /etc/vconsole.conf
+echo 'forge' > /etc/hostname
+printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 forge\n' > /etc/hosts
+
+useradd -m -G wheel,video,input,audio,render -s /bin/bash forge
+chpasswd < /root/.pw
+rm -f /root/.pw
+echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-wheel
+chmod 440 /etc/sudoers.d/10-wheel
+
+systemctl enable NetworkManager bluetooth power-profiles-daemon systemd-timesyncd
+# FORGE's system side: root helper, drives, performance tuning, services, sudoers.
+bash /opt/forge/system/forge-system-install --no-packages
+# NetworkManager handles Wi-Fi with iwd underneath
+mkdir -p /etc/NetworkManager/conf.d
+printf '[device]\nwifi.backend=iwd\n' > /etc/NetworkManager/conf.d/wifi-backend.conf
+
+# Boot straight into the console: autologin on tty1, quiet boot, no menu.
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -f -- \\\\u' --noclear --skip-login --nonewline --noissue --autologin forge %I \\\$TERM
+EOF
+cat > /home/forge/.bash_profile <<'EOF'
+# FORGE OS: tty1 is the console. Other ttys (Ctrl+Alt+F2) give a normal login.
+if [ -z "\$DISPLAY" ] && [ "\$(tty)" = "/dev/tty1" ]; then
+	if grep -q forge.recovery /proc/cmdline; then
+		exec /usr/lib/forge/forge-recovery
+	fi
+	exec /usr/lib/forge/forge-session
+fi
+EOF
+chown forge:forge /home/forge/.bash_profile
+touch /home/forge/.hushlogin && chown forge:forge /home/forge/.hushlogin
+
+# Gamescope real-time priority for smooth frame pacing
+setcap 'CAP_SYS_NICE=eip' /usr/bin/gamescope || true
+
+# Seed FORGE settings for this display
+mkdir -p /home/forge/.config/forge
+printf 'WIDTH=1920\nHEIGHT=1080\nREFRESH=60\nHDR=0\nVRR=0\nINTRO=1\n' > /home/forge/.config/forge/session.conf
+chown -R forge:forge /home/forge/.config /opt/forge
+
+# NVIDIA: load the driver early so the boot is clean
+if [ "$NVIDIA" = "1" ]; then
+	sed -i 's/^MODULES=(\(.*\))/MODULES=(\1 nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' /etc/mkinitcpio.conf
+	sed -i 's/ kms / /' /etc/mkinitcpio.conf
+	mkinitcpio -P
+fi
+
+# Bootloader
+bootctl install || bootctl --graceful install
+cat > /boot/loader/loader.conf <<EOF
+default forge.conf
+timeout 0
+console-mode max
+editor no
+EOF
+UCODE_LINE=""
+[ -f /boot/intel-ucode.img ] && UCODE_LINE="initrd  /intel-ucode.img"
+[ -f /boot/amd-ucode.img ] && UCODE_LINE="initrd  /amd-ucode.img"
+cat > /boot/loader/entries/forge.conf <<EOF
+title   FORGE OS
+linux   /vmlinuz-linux
+\$UCODE_LINE
+initrd  /initramfs-linux.img
+options root=UUID=$ROOT_UUID rw $KERNEL_ARGS
+EOF
+cat > /boot/loader/entries/forge-recovery.conf <<EOF
+title   FORGE OS Recovery
+linux   /vmlinuz-linux
+\$UCODE_LINE
+initrd  /initramfs-linux.img
+options root=UUID=$ROOT_UUID rw quiet forge.recovery=1 $KERNEL_ARGS
+EOF
+cat > /boot/loader/entries/forge-safe.conf <<EOF
+title   FORGE OS (safe mode)
+linux   /vmlinuz-linux
+\$UCODE_LINE
+initrd  /initramfs-linux-fallback.img
+options root=UUID=$ROOT_UUID rw nomodeset systemd.unit=multi-user.target
+EOF
+
+# Extras (clips, emulators): each optional, never blocks the install
+for p in umu-launcher icoutils gpu-screen-recorder retroarch libretro-snes9x libretro-mgba libretro-nestopia libretro-genesis-plus-gx libretro-beetle-psx-hw libretro-mupen64plus-next libretro-melonds libretro-ppsspp; do
+	pacman -S --noconfirm --needed "\$p" || echo "skipped \$p"
+done
+# Epic Games & GOG through Heroic (Flatpak)
+flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+timeout 900 flatpak install --system -y --noninteractive flathub com.heroicgameslauncher.hgl </dev/null || echo "Heroic will install with the first system update"
+mkdir -p /home/forge/ROMs /home/forge/Pictures/FORGE /home/forge/Videos/FORGE
+chown -R forge:forge /home/forge/ROMs /home/forge/Pictures /home/forge/Videos
+
+# Pre-build the console UI's shader cache so the first boot is instant
+echo "importing console UI"
+timeout 600 sudo -u forge HOME=/home/forge godot --headless --path /opt/forge/shell --import >/dev/null 2>&1 || echo "UI import skipped (runs on first boot)"
+mkdir -p /var/lib/forge && date > /var/lib/forge/installed
+echo "chroot setup finished"
+CHROOT
+	arch-chroot "$TARGET" bash -x /root/forge-chroot.sh >>"$LOG" 2>&1
+	rm -f "$TARGET/root/forge-chroot.sh"
+	cp "$LOG" "$TARGET/var/log/forge-install.log" || true
+
+	step 100 "Done!"
+	sleep 1
+}
+
+( install_all ) | "${DIALOG[@]}" --title " Installing FORGE OS " --gauge "\nStarting…" 10 70 0
+# Success = the bootloader entry, the console files and the finish marker all exist on the
+# NEW system. (Check real files under $TARGET: the /usr/lib/forge links are absolute and
+# would otherwise point at the USB's copy.)
+if [ ! -f "$TARGET/boot/loader/entries/forge.conf" ] || [ ! -f "$TARGET/opt/forge/system/forge-session" ] \
+	|| [ ! -f "$TARGET/var/lib/forge/installed" ]; then
+	{ echo "=== FORGE install steps ==="; grep -E '^\[[0-9:]+\] (STEP|FAILED|boot=|disk=|drive)' "$LOG"; echo; echo "=== last lines ==="; tail -n 12 "$LOG"; } > /tmp/forge-tail.txt
+	"${DIALOG[@]}" --title " Last lines of the log " --textbox /tmp/forge-tail.txt 30 100
+	die "The installation didn't finish."
+fi
+
+"${DIALOG[@]}" --title " FORGE OS is ready " --yes-label "Restart now" --no-label "Stay here" --yesno "\n\
+  Installed!\n\n\
+  1. Remove the USB drive.\n\
+  2. The console starts by itself.\n\
+  3. Sign in to Steam once (scan the QR code with the Steam app).\n\
+  4. In Windows, turn off Fast Startup so FORGE can open\n\
+     your other drives (see the README).\n\n\
+  Have fun." 18 64 && { umount -R "$TARGET"; reboot; }

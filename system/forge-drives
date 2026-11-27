@@ -1,0 +1,88 @@
+#!/bin/bash
+# FORGE OS — mounts your other drives (Windows NTFS, exFAT, Linux) under /mnt/<name>.
+# Runs as root at start-up (forge-drives.service) and again when you pick
+# "Open drive" in Add a game. Safe to run any number of times.
+#
+#   Windows system partition (has Windows/System32) → read-only, so Windows is never harmed.
+#   Every other drive → read-write, so games can save next to their files.
+#   A drive Windows left "dirty" or hibernated → tries ntfs-3g, then read-only as a last resort.
+set -u
+LOG=/var/log/forge-drives.log
+OPTS_NTFS3="uid=1000,gid=1000,umask=022,windows_names"
+OPTS_NTFS3G="uid=1000,gid=1000,umask=022,windows_names,big_writes"
+log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+
+modprobe ntfs3 2>/dev/null
+
+is_mounted() { findmnt -rn -S "$1" >/dev/null 2>&1; }
+
+unique_dir() {
+	local base="$1" n=2 d="/mnt/$1"
+	# Reuse an existing empty folder of the same name (from an earlier boot).
+	while [ -e "$d" ] && { mountpoint -q "$d" || [ -n "$(ls -A "$d" 2>/dev/null)" ]; }; do
+		d="/mnt/${base}_$n"; n=$((n + 1))
+	done
+	echo "$d"
+}
+
+try_mount() { # dev fstype dir
+	local dev="$1" fs="$2" dir="$3"
+	case "$fs" in
+		ntfs)
+			if [ "${WIN:-0}" = 1 ]; then
+				mount -t ntfs3 -o "ro,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (Windows, read-only)"; return 0; }
+				mount -t ntfs-3g -o "ro,$OPTS_NTFS3G" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (Windows, read-only, ntfs-3g)"; return 0; }
+				return 1
+			fi
+			mount -t ntfs3 -o "rw,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (ntfs3)"; return 0; }
+			mount -t ntfs-3g -o "rw,$OPTS_NTFS3G" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (ntfs-3g)"; return 0; }
+			mount -t ntfs3 -o "ro,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (READ-ONLY: Windows left it locked; shut Windows down fully to fix)"; return 0; }
+			return 1 ;;
+		exfat|vfat)
+			mount -o "rw,uid=1000,gid=1000,umask=022" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir ($fs)"; return 0; }
+			return 1 ;;
+		*)
+			mount -o rw "$dev" "$dir" 2>>"$LOG" && { chown 1000:1000 "$dir" 2>/dev/null; log "$dev → $dir ($fs)"; return 0; }
+			return 1 ;;
+	esac
+}
+
+
+while read -r line; do
+	L_PATH=""; L_FSTYPE=""; L_LABEL=""; L_SIZE=0; L_TYPE=""; L_PARTLABEL=""
+	eval "$(echo "$line" | sed -E 's/(^| )(PATH|FSTYPE|LABEL|SIZE|TYPE|PARTLABEL)=/\1L_\2=/g')"
+	dev="$L_PATH"; fs="$L_FSTYPE"
+	[ "$L_TYPE" = "part" ] || continue
+	case "$fs" in ntfs|exfat|vfat|ext4|btrfs|xfs|f2fs) ;; *) continue ;; esac
+	[ "${L_SIZE:-0}" -gt $((4 * 1073741824)) ] || continue        # skip tiny/system partitions
+	case "$L_PARTLABEL" in FORGE|FORGE_BOOT) continue ;; esac
+	is_mounted "$dev" && continue
+
+	WIN=0
+	if [ "$fs" = ntfs ]; then
+		tmp=$(mktemp -d)
+		if mount -t ntfs3 -o ro "$dev" "$tmp" 2>/dev/null || mount -t ntfs-3g -o ro "$dev" "$tmp" 2>/dev/null; then
+			[ -d "$tmp/Windows/System32" ] && WIN=1
+			umount "$tmp"
+		fi
+		rmdir "$tmp"
+	fi
+
+	name=$(echo "${L_LABEL:-}" | tr -cd 'A-Za-z0-9 _-' | sed 's/^ *//; s/ *$//' | tr ' ' '_')
+	[ -n "$name" ] || name="Drive_$(basename "$dev")"
+	[ "$WIN" = 1 ] && [ -z "${L_LABEL:-}" ] && name="Windows"
+	dir=$(unique_dir "$name")
+	mkdir -p "$dir"
+	if ! try_mount "$dev" "$fs" "$dir"; then
+		log "$dev: could not mount ($fs)"
+		rmdir "$dir" 2>/dev/null
+	fi
+done < <(lsblk -lnbpP -o PATH,FSTYPE,LABEL,SIZE,TYPE,PARTLABEL)
+
+# Clean up empty leftover folders so the game picker only shows real drives.
+for d in /mnt/*/; do
+	d="${d%/}"
+	[ -d "$d" ] || continue
+	mountpoint -q "$d" || rmdir "$d" 2>/dev/null
+done
+exit 0

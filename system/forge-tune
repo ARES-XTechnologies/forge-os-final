@@ -1,0 +1,91 @@
+#!/bin/bash
+# FORGE OS — performance tuning. Runs as root.
+#   forge-tune --apply   write the tuning files (installer and every update)
+#   forge-tune --boot    put CPU and GPU at full speed (every start-up, forge-tune.service)
+#
+# The console always runs at maximum performance: there are no power modes. What changes
+# frame rate is the game itself and FSR (Settings › Performance).
+#
+# Everything here is what SteamOS / Steam Deck and the big Linux gaming distros ship, and
+# works for AMD, Intel and NVIDIA. AMD gets the most from it.
+set -u
+LOG=/var/log/forge-tune.log
+log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+
+apply() {
+	rm -f /etc/sysctl.d/99-forge-gaming.conf     # older FORGE file, replaced by 99-forge.conf
+	# Kernel settings (SteamOS values):
+	#   max_map_count     some big games (and Proton) need far more memory maps than the default
+	#   split_lock        stop the kernel slowing down games that trip "split lock" detection
+	#   swappiness/zram   compressed RAM swap instead of disk swap: no stalls when RAM runs low
+	cat > /etc/sysctl.d/99-forge.conf <<'EOF'
+vm.max_map_count = 2147483642
+kernel.split_lock_mitigate = 0
+vm.swappiness = 100
+vm.page-cluster = 0
+vm.watermark_boost_factor = 0
+kernel.nmi_watchdog = 0
+EOF
+	# Compressed RAM swap (half of RAM, up to 16 GB).
+	mkdir -p /etc/systemd
+	cat > /etc/systemd/zram-generator.conf <<'EOF'
+[zram0]
+zram-size = min(ram / 2, 16384)
+compression-algorithm = zstd
+EOF
+	# NTSYNC: Windows-style thread syncing done in the kernel. Newer Proton uses it for a big
+	# CPU-side speed-up in Windows games.
+	echo ntsync > /etc/modules-load.d/forge-ntsync.conf
+	echo 'KERNEL=="ntsync", MODE="0666"' > /etc/udev/rules.d/70-forge-ntsync.rules
+	# Games and Steam: bigger shader cache (fewer stutters after the first run), NTSYNC on.
+	cat > /etc/profile.d/forge-gaming.sh <<'EOF'
+# FORGE OS gaming environment (written by forge-tune)
+export MESA_SHADER_CACHE_MAX_SIZE=16G
+export MESA_DISK_CACHE_SINGLE_FILE=1
+export PROTON_USE_NTSYNC=1
+export __GL_SHADER_DISK_CACHE_SIZE=12000000000
+export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+EOF
+	# GameMode: while a game runs, keep the CPU on the performance governor and the GPU at
+	# full speed (it already is; this just guarantees it if anything changed it).
+	cat > /etc/gamemode.ini <<'EOF'
+[general]
+desiredgov=performance
+softrealtime=auto
+renice=10
+ioprio=0
+inhibit_screensaver=1
+
+[gpu]
+apply_gpu_optimisations=accept-responsibility
+gpu_device=0
+amd_performance_level=high
+EOF
+	log "applied tuning files"
+}
+
+boot() {
+	# CPU: performance governor and energy preference everywhere they exist.
+	for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+		[ -w "$g" ] && echo performance > "$g" 2>/dev/null
+	done
+	for e in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+		[ -w "$e" ] && echo performance > "$e" 2>/dev/null
+	done
+	command -v powerprofilesctl >/dev/null && powerprofilesctl set performance 2>/dev/null
+	# AMD GPUs: full clocks all the time.
+	for l in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+		[ -w "$l" ] && echo high > "$l" 2>/dev/null
+	done
+	# NVIDIA: keep the driver loaded and ready (no wake-up delay).
+	command -v nvidia-smi >/dev/null && nvidia-smi -pm 1 >/dev/null 2>&1
+	modprobe ntsync 2>/dev/null
+	log "boot: full performance"
+}
+
+case "${1:-}" in
+	--apply) apply ;;
+	--boot) boot ;;
+	*) echo "usage: forge-tune --apply | --boot" >&2; exit 2 ;;
+esac
+exit 0

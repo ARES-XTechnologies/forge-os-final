@@ -1,0 +1,39 @@
+# Builds the FORGE OS installer ISO on GitHub's servers (free).
+# Run it from the Actions tab ("Build FORGE OS ISO" > "Run workflow"),
+# or push a tag like v1.0.0 to also publish it as a Release download.
+name: Build FORGE OS ISO
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Build the ISO
+        run: bash iso/build-iso.sh
+
+      - name: Upload the ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-os-iso
+          path: out/*.iso
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.iso

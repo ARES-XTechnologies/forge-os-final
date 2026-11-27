@@ -1,0 +1,76 @@
+; FORGE OS — console shell
+; Godot 4.4+ project. Built by Blacksmith Games.
+
+config_version=5
+
+[application]
+
+config/name="FORGE OS"
+config/description="Console shell for FORGE OS"
+run/main_scene="res://main.tscn"
+config/icon="res://icon.png"
+config/features=PackedStringArray("4.4", "Mobile")
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0, 0, 0, 1)
+run/max_fps=0
+
+[autoload]
+
+Tokens="*res://scripts/core/tokens.gd"
+Config="*res://scripts/core/config.gd"
+Profiles="*res://scripts/services/profiles.gd"
+Shellbus="*res://scripts/core/shellbus.gd"
+Sfx="*res://scripts/core/sfx.gd"
+Nav="*res://scripts/core/nav.gd"
+Sys="*res://scripts/services/sys.gd"
+GameSettings="*res://scripts/services/game_settings.gd"
+SteamWeb="*res://scripts/services/steam_web.gd"
+SteamLib="*res://scripts/services/steam_lib.gd"
+Art="*res://scripts/services/art.gd"
+Session="*res://scripts/services/session.gd"
+LocalGames="*res://scripts/services/local_games.gd"
+Downloads="*res://scripts/services/downloads.gd"
+Updater="*res://scripts/services/updater.gd"
+Metrics="*res://scripts/services/metrics.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/mode=4
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/vsync/vsync_mode=1
+window/per_pixel_transparency/allowed=true
+mouse_cursor/hide_mouse=false
+
+[gui]
+
+common/snap_controls_to_pixels=false
+theme/default_font_antialiasing=1
+theme/default_font_subpixel_positioning=1
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=false
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+textures/canvas_textures/default_texture_filter=1
+2d/snap/snap_2d_transforms_to_pixel=false
+anti_aliasing/quality/msaa_2d=0
+environment/defaults/default_clear_color=Color(0.02, 0.02, 0.05, 1)
+
+[debug]
+
+gdscript/warnings/inference_on_variant=0
+gdscript/warnings/unused_variable=0
+gdscript/warnings/unused_parameter=0
+gdscript/warnings/shadowed_variable=0
+gdscript/warnings/integer_division=0
+gdscript/warnings/narrowing_conversion=0
+gdscript/warnings/return_value_discarded=0
+gdscript/warnings/unused_signal=0
+gdscript/warnings/untyped_declaration=0

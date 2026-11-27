@@ -1,0 +1,13 @@
+[Unit]
+Description=FORGE OS: mount your other drives
+After=local-fs.target systemd-udev-settle.service
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/forge/forge-drives
+RemainAfterExit=yes
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

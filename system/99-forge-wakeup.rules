@@ -1,0 +1,3 @@
+# FORGE OS: let USB controllers, wireless dongles, keyboards and Bluetooth adapters
+# wake the console from rest mode.
+ACTION=="add", SUBSYSTEM=="usb", DRIVER=="usb", ATTR{power/wakeup}="enabled"

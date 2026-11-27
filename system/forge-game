@@ -1,0 +1,99 @@
+#!/bin/bash
+# FORGE OS — game process control, used by the console UI.
+#   forge-game pids <steam-appid|pid:N|match:TEXT>   list every process of the game
+#   forge-game pause|resume|quit <same target>
+#   forge-game exe <steam-appid>                      print the game's main process name
+#   forge-game steam-restart [shell-dir]              restart Steam (applies pending config)
+#   forge-game screenshot <out.png>                   ask Gamescope for a screenshot
+set -u
+
+descendants() {
+	local p
+	for p in $(ps -o pid= --ppid "$1" 2>/dev/null); do
+		echo "$p"
+		descendants "$p"
+	done
+}
+
+roots() {
+	case "$1" in
+		pid:*) echo "${1#pid:}" ;;
+		match:*) pgrep -f -- "${1#match:}" ;;
+		*) pgrep -f "AppId=$1( |$)" 2>/dev/null || pgrep -f "SteamLaunch AppId=$1" ;;
+	esac
+}
+
+all_pids() {
+	local r
+	for r in $(roots "$1"); do
+		echo "$r"
+		descendants "$r"
+	done | sort -u
+}
+
+case "${1:-}" in
+	pids)
+		all_pids "$2"
+		;;
+	pause)
+		for p in $(all_pids "$2"); do kill -STOP "$p" 2>/dev/null; done
+		;;
+	resume)
+		for p in $(all_pids "$2"); do kill -CONT "$p" 2>/dev/null; done
+		;;
+	quit)
+		pids=$(all_pids "$2")
+		[ -z "$pids" ] && exit 0
+		for p in $pids; do kill -CONT "$p" 2>/dev/null; done
+		for p in $pids; do kill -TERM "$p" 2>/dev/null; done
+		for _ in $(seq 1 12); do
+			alive=0
+			for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+			[ "$alive" = 0 ] && exit 0
+			sleep 0.5
+		done
+		for p in $pids; do kill -KILL "$p" 2>/dev/null; done
+		;;
+	exe)
+		# Biggest-memory process of the game = the game itself (not the launcher/reaper)
+		best=""; best_rss=0
+		for p in $(all_pids "$2"); do
+			rss=$(ps -o rss= -p "$p" 2>/dev/null | tr -d ' ')
+			[ -z "$rss" ] && continue
+			if [ "$rss" -gt "$best_rss" ]; then best_rss=$rss; best=$p; fi
+		done
+		[ -n "$best" ] || exit 1
+		name=$(tr '\0' '\n' < "/proc/$best/cmdline" | head -n1)
+		basename "${name//\\//}"
+		;;
+	steam-restart)
+		if pgrep -x steam >/dev/null; then
+			steam -shutdown >/dev/null 2>&1 &
+			for _ in $(seq 1 30); do pgrep -x steam >/dev/null || break; sleep 0.5; done
+			pkill -x steam 2>/dev/null
+			sleep 1
+		fi
+		godot --headless --path "${2:-/opt/forge/shell}" -- --apply-pending >/dev/null 2>&1
+		MANGOHUD=1 steam -silent -nofriendsui -nochatui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1 &
+		disown
+		;;
+	screenshot)
+		out="$2"
+		before=$(ls -t /tmp/gamescope_*.png 2>/dev/null | head -n1)
+		xprop -root -f GAMESCOPECTRL_REQUEST_SCREENSHOT 32c -set GAMESCOPECTRL_REQUEST_SCREENSHOT 1 2>/dev/null || exit 1
+		for _ in $(seq 1 40); do
+			now=$(ls -t /tmp/gamescope_*.png 2>/dev/null | head -n1)
+			if [ -n "$now" ] && [ "$now" != "$before" ]; then
+				sleep 0.3
+				mkdir -p "$(dirname "$out")"
+				mv "$now" "$out" && echo "$out" && exit 0
+			fi
+			sleep 0.1
+		done
+		exit 1
+		;;
+	*)
+		echo "usage: forge-game pids|pause|resume|quit|exe|steam-restart|screenshot" >&2
+		exit 2
+		;;
+esac

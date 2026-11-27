@@ -1,0 +1,100 @@
+#!/bin/bash
+# FORGE OS — installs the system side of FORGE. Runs as root.
+# Used by the installer and by every update, so a release always brings the whole OS
+# with it: the FORGE app, its root helper and services, the tuning, and every OS package.
+#
+#   forge-system-install                 install system parts + update packages (an update)
+#   forge-system-install --no-packages   system parts only (the installer, which already
+#                                         installed packages)
+#
+# Packages are pinned to one dated Arch Linux snapshot (system/os-snapshot), the date this
+# FORGE release was tested with. Every console gets exactly the same package set, and Arch
+# moving on can never break a console between releases. Undo goes back to the previous
+# release's snapshot (packages are downgraded with it).
+#
+# Prints "REBOOT" at the end if the kernel or graphics drivers changed.
+set -u
+SRC=/opt/forge/system
+LIB=/usr/lib/forge
+LOG=/var/log/forge-update.log
+STATE=/var/lib/forge
+PACKAGES=1
+[ "${1:-}" = "--no-packages" ] && PACKAGES=0
+log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
+mkdir -p "$LIB" "$STATE"
+
+# Copy a file into place atomically (a running script keeps its old copy until it exits).
+put() { # mode src dest
+	install -Dm"$1" "$2" "$3.new" && mv -f "$3.new" "$3"
+}
+
+# ------------------------------------------------------------------ system parts
+log "installing system parts from $SRC"
+put 755 "$SRC/forge-helper" "$LIB/forge-helper"
+put 755 "$SRC/forge-drives" "$LIB/forge-drives"
+put 755 "$SRC/forge-tune" "$LIB/forge-tune"
+put 755 "$SRC/forge-system-install" "$LIB/forge-system-install"
+for s in forge-session forge-inner forge-game forge-recovery forge-run forge-fsr; do
+	chmod 755 "$SRC/$s" 2>/dev/null
+	ln -sfn "/opt/forge/system/$s" "$LIB/$s"
+done
+put 644 "$SRC/logind-forge.conf" /etc/systemd/logind.conf.d/forge.conf
+put 644 "$SRC/99-forge-wakeup.rules" /etc/udev/rules.d/99-forge-wakeup.rules
+for u in forge-drives.service forge-tune.service forge-scx.service; do
+	put 644 "$SRC/$u" "/etc/systemd/system/$u"
+	mkdir -p /etc/systemd/system/multi-user.target.wants
+	ln -sfn "/etc/systemd/system/$u" "/etc/systemd/system/multi-user.target.wants/$u"
+done
+# sudoers: only installed if it passes the syntax check (a broken file would lock sudo).
+tmp=$(mktemp)
+cp "$SRC/sudoers-forge" "$tmp"
+if visudo -cqf "$tmp"; then
+	put 440 "$tmp" /etc/sudoers.d/forge
+else
+	log "sudoers check failed: kept the old file"
+fi
+rm -f "$tmp"
+"$LIB/forge-tune" --apply
+systemctl daemon-reload 2>/dev/null
+
+[ "$PACKAGES" = 1 ] || { log "system parts done (no packages)"; exit 0; }
+
+# ------------------------------------------------------------------ OS packages
+versions() { pacman -Q linux mesa nvidia-open nvidia-utils gamescope 2>/dev/null | sort; }
+before=$(versions)
+SNAP=$(grep -v '^#' "$SRC/os-snapshot" 2>/dev/null | head -n1 | tr -d '[:space:]')
+cp -f /etc/pacman.d/mirrorlist "$STATE/mirrorlist.prev" 2>/dev/null
+if [ -n "$SNAP" ] && curl -fsI --max-time 20 "https://archive.archlinux.org/repos/$SNAP/core/os/x86_64/core.db" >/dev/null; then
+	printf '# FORGE OS: packages pinned to the %s snapshot (tested with this release)\nServer = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$SNAP" "$SNAP" > /etc/pacman.d/mirrorlist
+	log "packages: snapshot $SNAP"
+else
+	log "packages: snapshot $SNAP unreachable, using the current mirror list"
+fi
+# Make sure everything a console needs is installed, then bring all packages to the
+# snapshot (-uu also allows going *down* to it, which is how Undo works).
+need=$(grep -v '^#' "$SRC/packages.txt" | tr '\n' ' ')
+if pacman -Syyuu --noconfirm --needed $need >> "$LOG" 2>&1; then
+	echo "$SNAP" > "$STATE/os-snapshot"
+else
+	log "package update failed: going back to the previous mirror list"
+	cp -f "$STATE/mirrorlist.prev" /etc/pacman.d/mirrorlist
+	pacman -Syyuu --noconfirm >> "$LOG" 2>&1
+	exit 1
+fi
+# Optional extras: each on its own, never blocks anything.
+for p in umu-launcher icoutils gpu-screen-recorder retroarch libretro-snes9x libretro-mgba libretro-nestopia libretro-genesis-plus-gx libretro-beetle-psx-hw libretro-mupen64plus-next libretro-melonds libretro-ppsspp; do
+	pacman -Q "$p" >/dev/null 2>&1 || pacman -S --noconfirm --needed "$p" >> "$LOG" 2>&1 || log "skipped $p"
+done
+if command -v flatpak >/dev/null; then
+	flatpak update --system -y --noninteractive >> "$LOG" 2>&1 || true
+fi
+# Never leave the PC without a bootable kernel.
+if [ ! -f /boot/vmlinuz-linux ] || [ ! -f /boot/initramfs-linux.img ]; then
+	log "kernel files missing after update: rebuilding"
+	pacman -S --noconfirm linux >> "$LOG" 2>&1
+	mkinitcpio -P >> "$LOG" 2>&1
+fi
+after=$(versions)
+log "update done"
+[ "$before" != "$after" ] && echo REBOOT
+exit 0

@@ -1,0 +1,2 @@
+# FORGE OS: the console UI may run only these maintenance actions without a password.
+forge ALL=(root) NOPASSWD: /usr/lib/forge/forge-helper update, /usr/lib/forge/forge-helper apply-update, /usr/lib/forge/forge-helper rollback, /usr/lib/forge/forge-helper timezone *, /usr/lib/forge/forge-helper mount-drives

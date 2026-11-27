@@ -1,0 +1,15 @@
+[Unit]
+Description=FORGE OS: LAVD game scheduler (the one SteamOS uses for smooth frame pacing)
+After=multi-user.target
+ConditionPathExists=/usr/bin/scx_lavd
+ConditionPathExists=/sys/kernel/sched_ext
+
+[Service]
+# Performance mode; if this version of LAVD doesn't know that option, run it plain.
+# If it ever stops, Linux simply falls back to its normal scheduler.
+ExecStart=/bin/sh -c 'scx_lavd --performance || exec scx_lavd'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

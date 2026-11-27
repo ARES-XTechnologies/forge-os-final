@@ -1,0 +1,87 @@
+#!/bin/bash
+# FORGE OS — runs inside Gamescope.
+# Starts Steam silently in the background (games launch through it), then runs the
+# console UI. If the UI crashes it comes straight back; if it keeps crashing, Steam
+# Big Picture takes over so the console is never stuck on a black screen.
+
+LOG="$HOME/.local/share/forge/logs/shell.log"
+ACTION_FILE="$XDG_RUNTIME_DIR/forge-action"
+FIRST_FILE="$XDG_RUNTIME_DIR/forge-first-boot-done"
+SHELL_DIR="/opt/forge/shell"
+
+# In-game performance overlay / benchmark logging for every game (controlled by Settings).
+export MANGOHUD=1
+export MANGOHUD_CONFIGFILE="$HOME/.config/MangoHud/MangoHud.conf"
+# Better frame pacing on NVIDIA under Gamescope
+export __GL_THREADED_OPTIMIZATIONS=1
+export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+export STEAM_FORCE_DESKTOPUI_SCALING=1
+
+start_steam() {
+	if ! pgrep -x steam >/dev/null; then
+		# Write queued Steam settings (Proton versions, launch options, account switch)
+		# while Steam is closed, so Steam picks them up as it starts.
+		godot --headless --path "$SHELL_DIR" -- --apply-pending >> "$LOG" 2>&1
+		echo "[forge] starting Steam in the background" >> "$LOG"
+		steam -silent -nofriendsui -nochatui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1 &
+	fi
+}
+
+steam_shutdown() {
+	if pgrep -x steam >/dev/null; then
+		steam -shutdown >/dev/null 2>&1 &
+		for _ in $(seq 1 20); do
+			pgrep -x steam >/dev/null || break
+			sleep 0.5
+		done
+	fi
+}
+
+big_picture() {
+	# Hand the screen to Steam Big Picture. FORGE returns when Steam exits
+	# (Big Picture › Power › Exit Steam).
+	echo "[forge] switching to Big Picture" >> "$LOG"
+	steam_shutdown
+	pkill -x steam 2>/dev/null
+	sleep 1
+	steam -gamepadui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1
+	start_steam
+}
+
+start_steam
+
+crashes=0
+while true; do
+	ARGS=(--path "$SHELL_DIR" --rendering-method mobile)
+	# The particle intro plays once per boot; restarts go straight to Home.
+	if [ -f "$FIRST_FILE" ]; then
+		USER_ARGS=(-- --no-intro)
+	else
+		USER_ARGS=()
+		touch "$FIRST_FILE"
+	fi
+	started=$(date +%s)
+	# No performance overlay on FORGE itself: while a game runs, FORGE stays on screen as a
+	# see-through layer, and its own counter showed up next to the game's (two overlays).
+	MANGOHUD=0 godot "${ARGS[@]}" "${USER_ARGS[@]}" >> "$LOG" 2>&1
+	code=$?
+	echo "[forge] shell exited with $code" >> "$LOG"
+	case $code in
+		42) steam_shutdown; echo restart > "$ACTION_FILE"; exit 0 ;;
+		43) big_picture; continue ;;
+		44) steam_shutdown; echo poweroff > "$ACTION_FILE"; exit 0 ;;
+		45) steam_shutdown; echo reboot > "$ACTION_FILE"; exit 0 ;;
+		0)  crashes=0; continue ;;
+	esac
+	if [ $(( $(date +%s) - started )) -lt 15 ]; then
+		crashes=$((crashes + 1))
+	else
+		crashes=0
+	fi
+	if [ "$crashes" -ge 3 ]; then
+		echo "[forge] the console UI keeps crashing; falling back to Big Picture" >> "$LOG"
+		crashes=0
+		big_picture
+	fi
+	sleep 0.5
+done
