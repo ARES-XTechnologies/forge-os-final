@@ -28,8 +28,16 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	get_tree().root.content_scale_factor = Config.get_f("display.ui_scale")
-	Sys.write_session_conf()
+	var mode_changed := Sys.write_session_conf()
 	_last_wall = Time.get_unix_time_from_system()
+	# The console is following the screen's own best mode and that just changed (first start
+	# after an update that reads the screen better, or a new monitor): switch to it now, once.
+	var rt := OS.get_environment("XDG_RUNTIME_DIR")
+	if mode_changed and OS.get_environment("FORGE_SESSION") == "1" and not Config.get_b("display.custom") and rt != "" and not FileAccess.file_exists(rt + "/forge-mode-switched"):
+		var g := FileAccess.open(rt + "/forge-mode-switched", FileAccess.WRITE)
+		if g:
+			g.close()
+			get_tree().create_timer(1.5).timeout.connect(Sys.restart_session)
 
 	wallpaper = Wallpaper.new()
 	add_child(wallpaper)

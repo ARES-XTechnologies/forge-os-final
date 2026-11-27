@@ -203,7 +203,8 @@ func _unpacked(err: String) -> void:
 		var reboot := t.contains("REBOOT")
 		status = "Updated. Restarting…"
 		state_changed.emit()
-		Shellbus.notify({"title": "FORGE OS updated", "body": "Restarting the console…" if reboot else "Restarting the console UI…", "icon": "check", "color": Tokens.OK})
+		var later := t.contains("PACKAGES_LATER")
+		Shellbus.notify({"title": "FORGE OS updated", "body": ("Drivers update next time. " if later else "") + ("Restarting the console…" if reboot else "Restarting the console UI…"), "icon": "check", "color": Tokens.OK})
 		await get_tree().create_timer(2.5).timeout
 		if reboot:
 			Sys.power("reboot")         # new kernel or drivers: a full restart loads them
@@ -241,5 +242,5 @@ func _collect_bg() -> void:
 
 func _exit_tree() -> void:
 	for t in _bg:
-		WorkerThreadPool.wait_for_task_completion(t)
+		TaskWait.on_exit(t)
 	_bg.clear()

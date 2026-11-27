@@ -35,7 +35,7 @@ mkdir -p "$ERRDIR"
 attempt() { # label dev dir mount-args...
 	local label="$1" dev="$2" dir="$3"; shift 3
 	local err
-	if err=$("$@" 2>&1); then
+	if err=$("$@" 2>&1 </dev/null); then
 		log "$dev → $dir ($label)"
 		rm -f "$ERRDIR/$(basename "$dev")"
 		return 0
@@ -72,7 +72,17 @@ try_mount() { # dev fstype dir
 	esac
 }
 
-while read -r line; do
+# The drive list is read in full first (lsblk --pairs; note --pairs and --list can't be combined,
+# which silently gave an empty list before v1.4.3 and is why no drive ever opened), then each
+# drive is handled with its own stdin closed so nothing can swallow the rest of the list.
+if ! LIST=$(lsblk -nbpP -o PATH,FSTYPE,LABEL,SIZE,TYPE,PARTLABEL 2>&1); then
+	log "lsblk failed: $LIST"
+	echo "all: failed: could not list the drives ($LIST)"
+	exit 1
+fi
+mapfile -t LINES <<<"$LIST"
+for line in "${LINES[@]}"; do
+	[ -n "$line" ] || continue
 	L_PATH=""; L_FSTYPE=""; L_LABEL=""; L_SIZE=0; L_TYPE=""; L_PARTLABEL=""
 	eval "$(echo "$line" | sed -E 's/(^| )(PATH|FSTYPE|LABEL|SIZE|TYPE|PARTLABEL)=/\1L_\2=/g')"
 	dev="$L_PATH"; fs="$L_FSTYPE"
@@ -85,7 +95,7 @@ while read -r line; do
 	WIN=0
 	if [ "$fs" = ntfs ]; then
 		tmp=$(mktemp -d)
-		if mount -t ntfs3 -o ro "$dev" "$tmp" 2>/dev/null || mount -t ntfs -o ro "$dev" "$tmp" 2>/dev/null || ntfs-3g -o ro "$dev" "$tmp" 2>/dev/null; then
+		if mount -t ntfs3 -o ro "$dev" "$tmp" </dev/null 2>/dev/null || mount -t ntfs -o ro "$dev" "$tmp" </dev/null 2>/dev/null || ntfs-3g -o ro "$dev" "$tmp" </dev/null 2>/dev/null; then
 			[ -d "$tmp/Windows/System32" ] && WIN=1
 			umount "$tmp"
 		fi
@@ -104,7 +114,7 @@ while read -r line; do
 		say "$dev" "failed: $(cat "$ERRDIR/$(basename "$dev")" 2>/dev/null || echo "no reason given")"
 		rmdir "$dir" 2>/dev/null
 	fi
-done < <(lsblk -lnbpP -o PATH,FSTYPE,LABEL,SIZE,TYPE,PARTLABEL)
+done
 
 # Clean up empty leftover folders so the game picker only shows real drives.
 for d in /mnt/*/; do

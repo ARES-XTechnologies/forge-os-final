@@ -329,7 +329,7 @@ func display_modes() -> Array:
 	out.sort_custom(func(a, b): return a.x * a.y > b.x * b.y)
 	return out
 
-const REFRESH_RATES := [60, 75, 90, 100, 120, 144, 165, 170, 180, 200, 240, 280, 360, 480]
+const REFRESH_RATES := [60, 75, 90, 100, 120, 144, 165, 170, 180, 200, 220, 240, 280, 300, 360]
 
 var _native := Vector3i.ZERO     # x, y = native resolution, z = highest refresh at it
 var _edid_modes := []            # Vector3i(w, h, hz) the screen reports
@@ -374,8 +374,14 @@ func display_refresh() -> int:
 func refresh_rates() -> Array:
 	var top := native_mode().z
 	var rates := {}
+	# If the screen reported no fast modes at all, its list is probably incomplete: offer every
+	# common rate so you can still pick yours (the default stays what the screen reported).
+	var known_fast := false
+	for m in _edid_modes:
+		if (m as Vector3i).z > 60:
+			known_fast = true
 	for r in REFRESH_RATES:
-		if r <= top:
+		if r <= top or not known_fast:
 			rates[r] = true
 	for m in _edid_modes:
 		rates[(m as Vector3i).z] = true
@@ -388,10 +394,12 @@ func refresh_rates() -> Array:
 	return out
 
 ## Writes the file the session reads before starting Gamescope.
-func write_session_conf() -> void:
+## Returns true if the resolution or refresh rate changed from what the file said before.
+func write_session_conf() -> bool:
+	var before := read_text(conf_dir + "/session.conf")
 	var f := FileAccess.open(conf_dir + "/session.conf", FileAccess.WRITE)
 	if f == null:
-		return
+		return false
 	f.store_line("# Written by FORGE Settings. Applied when the session restarts.")
 	f.store_line("WIDTH=%d" % display_width())
 	f.store_line("HEIGHT=%d" % display_height())
@@ -399,6 +407,9 @@ func write_session_conf() -> void:
 	f.store_line("HDR=%d" % int(Config.get_b("display.hdr")))
 	f.store_line("VRR=%d" % int(Config.get_b("display.vrr")))
 	f.store_line("INTRO=%d" % int(Config.get_b("appearance.intro")))
+	f.close()
+	var mode := "WIDTH=%d\nHEIGHT=%d\nREFRESH=%d" % [display_width(), display_height(), display_refresh()]
+	return before != "" and not before.contains(mode)
 
 # ------------------------------------------------------------------ MangoHud
 ## In-game performance overlay and frame-time logging. Steam is started with
@@ -532,5 +543,5 @@ func about() -> Dictionary:
 ## quits in the middle of an update).
 func _exit_tree() -> void:
 	for id in _tasks:
-		WorkerThreadPool.wait_for_task_completion(_tasks[id])
+		TaskWait.on_exit(_tasks[id])
 	_tasks.clear()

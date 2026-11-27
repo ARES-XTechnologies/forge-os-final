@@ -50,11 +50,19 @@ case "${1:-}" in
 		chown -R forge:forge /opt/forge
 		rm -rf "$STAGED"
 		# The new release installs its own system side (and packages) with its own script.
+		# Its system parts always install first; only the package step needs the internet.
+		# If the package servers are busy, keep the new FORGE (it works with the current
+		# packages) and bring the packages up to date on the next update or "Repair system".
 		if ! bash /opt/forge/system/forge-system-install; then
-			log "apply-update: system update failed, going back"
-			rm -rf /opt/forge.bad; mv /opt/forge /opt/forge.bad; mv /opt/forge.prev /opt/forge
-			bash /opt/forge/system/forge-system-install --no-packages >/dev/null
-			exit 1
+			if [ -x /usr/lib/forge/forge-helper ] && [ -f /opt/forge/shell/project.godot ]; then
+				log "apply-update: package step failed, keeping the new FORGE; packages later"
+				echo "PACKAGES_LATER"
+			else
+				log "apply-update: system update failed, going back"
+				rm -rf /opt/forge.bad; mv /opt/forge /opt/forge.bad; mv /opt/forge.prev /opt/forge
+				bash /opt/forge/system/forge-system-install --no-packages >/dev/null
+				exit 1
+			fi
 		fi
 		# rebuild the shader cache for the new version
 		reimport

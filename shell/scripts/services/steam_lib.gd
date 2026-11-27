@@ -446,5 +446,5 @@ var _scan_task := -1
 ## still using and crashed FORGE on exit (seen on every restart). Let it finish first.
 func _exit_tree() -> void:
 	if _scan_task >= 0:
-		WorkerThreadPool.wait_for_task_completion(_scan_task)
+		TaskWait.on_exit(_scan_task)
 		_scan_task = -1

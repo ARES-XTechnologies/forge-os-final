@@ -27,10 +27,17 @@ func show_data(d: Dictionary) -> void:
 	var w := 470.0
 	var h := 92.0 if body != "" else 70.0
 	# Long messages (like a reason a drive won't open) get a wider card and two lines.
-	var long_title := title.length() > 36
+	var long_title := title.length() > 36 or body.length() > 46
 	if long_title:
 		w = 660.0
-		h = 118.0 if body != "" else 96.0
+	# Lines each text really needs at this width (measured, not guessed).
+	var tlines := 1 if Tokens.font(700).get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 19 if long_title else 21).x <= w - 104 else 2
+	var blines := 0
+	if body != "":
+		blines = 1 if Tokens.font(500).get_string_size(body, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x <= w - 104 else 2
+	if long_title:
+		h = 30.0 + tlines * 26.0 + blines * 23.0 + (6.0 if body != "" else 0.0)
+		h = maxf(h, 92.0 if body != "" else 70.0)
 	var p := GlassPanel.new()
 	p.radius = 30
 	p.focus = 0.4
@@ -68,6 +75,7 @@ func show_data(d: Dictionary) -> void:
 	tl.position = Vector2(84, 18 if body != "" else 22)
 	tl.size = Vector2(w - 104, 28)
 	tl.clip_text = true
+	tl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	if long_title:
 		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		tl.max_lines_visible = 2
@@ -75,18 +83,25 @@ func show_data(d: Dictionary) -> void:
 		tl.clip_text = true
 		tl.position = Vector2(84, 14)
 		tl.custom_minimum_size = Vector2(w - 104, 0)
-		tl.size = Vector2(w - 104, 56)
+		tl.size = Vector2(w - 104, tlines * 26.0)
 	p.add_child(tl)
 	if long_title:
 		# Once in the tree, pin the width so the text wraps inside the card.
-		tl.size = Vector2(w - 104, 56)
-		tl.set_deferred("size", Vector2(w - 104, 56))
+		tl.size = Vector2(w - 104, tlines * 26.0)
+		tl.set_deferred("size", Vector2(w - 104, tlines * 26.0))
 	if body != "":
 		var bl := Tokens.label(body, 17, 500, Tokens.INK_DIM)
-		bl.position = Vector2(84, 50 if not long_title else 76)
-		bl.size = Vector2(w - 104, 24)
+		bl.position = Vector2(84, 50 if not long_title else 16.0 + tlines * 26.0 + 6.0)
 		bl.clip_text = true
+		bl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		if long_title:
+			bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			bl.max_lines_visible = 2
 		p.add_child(bl)
+		var bh := 24.0 if not long_title else blines * 23.0
+		bl.custom_minimum_size = Vector2(w - 104, 0)
+		bl.size = Vector2(w - 104, bh)
+		bl.set_deferred("size", Vector2(w - 104, bh))
 	add_child(p)
 	var s := Spring.preset(1.0, &"bouncy")
 	s.target = 0.0

@@ -83,6 +83,11 @@ func _ready() -> void:
 	_value_old = Tokens.label("", 23, 500, Tokens.INK_DIM)
 	_value_old.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(_value_old)
+	# No text ever leaves the row: anything too long is cut with "…".
+	for l in [_title, _sub, _value, _value_old]:
+		if l:
+			l.clip_text = true
+			l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	size.y = row_height
 	_knob.snap(1.0 if _get_b() else 0.0)
 	_fill.snap(_norm())
@@ -249,12 +254,38 @@ func _process(dt: float) -> void:
 			_value.size = Vector2(520, 30)
 			_value.position = Vector2(right - 520 - (34 if kind == "action" else 0), (row_height - 30) * 0.5)
 	_value.add_theme_color_override("font_color", Tokens.INK if fo > 0.5 else Tokens.INK_DIM)
+	_fit_text(right)
 	scale = Vector2(pop, pop)
 	pivot_offset = size * 0.5
 	set_meta("_k", k)
 	set_meta("_f", fl)
 	set_meta("_fo", fo)
 	queue_redraw()
+
+## Keeps every label inside the row: the value takes what it needs (up to a limit) and the
+## title and subtitle get the rest, ending in "…" if they still don't fit.
+func _fit_text(right: float) -> void:
+	var tx := _title.position.x
+	var reserved := 0.0
+	match kind:
+		"choice": reserved = _choice_w() + 70.0
+		"slider": reserved = _slider_w() + 160.0
+		"toggle": reserved = 120.0
+		_:
+			var vw := 0.0
+			if _value.text != "":
+				vw = Tokens.font(500).get_string_size(_value.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 23).x
+			var title_w := Tokens.font(500).get_string_size(_title.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 25).x
+			# value gets what's left after the title (at least a third of the row, at most 520 px)
+			var room := right - (34.0 if kind == "action" else 0.0) - tx - title_w - 40.0
+			var w := clampf(minf(vw, maxf(room, size.x * 0.33)), 0.0, 520.0)
+			_value.size.x = w
+			_value.position.x = right - w - (34.0 if kind == "action" else 0.0)
+			reserved = w + 50.0 + (34.0 if kind == "action" else 0.0)
+	var avail := maxf(right - tx - reserved, 80.0)
+	_title.size = Vector2(avail, _title.size.y)
+	if _sub:
+		_sub.size = Vector2(avail, _sub.size.y)
 
 func _choice_w() -> float:
 	return clampf(size.x * 0.34, 170.0, 320.0)

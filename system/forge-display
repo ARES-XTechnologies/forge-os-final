@@ -6,8 +6,11 @@
 #   forge-display --native   prints "WIDTH HEIGHT HZ" of the screen's best mode
 #   forge-display --modes    prints one "WIDTH HEIGHT HZ" line per mode the screen reports
 #
-# Reads detailed timings from the base EDID block, CTA-861 extension blocks and DisplayID
-# blocks (where high refresh rates usually live). Needs no extra packages.
+# Two sources, merged:
+#   1. the EDID itself: detailed timings from the base block, CTA-861 extension blocks and
+#      DisplayID blocks (where high refresh rates usually live);
+#   2. the kernel's own list of modes for the screen (drm_info, package drm-info), which also
+#      works when the graphics driver doesn't publish the EDID file (NVIDIA often doesn't).
 set -u
 
 edid_file() {
@@ -95,19 +98,45 @@ parse() {
 	[ -n "$MODES" ]
 }
 
+# Kernel mode list via drm_info: lines like "1920×1080@219.98 preferred ...".
+PREF=""
+from_drm_info() {
+	command -v drm_info >/dev/null || return 0
+	local out line m w h hz
+	out=$(timeout 5 drm_info 2>/dev/null) || return 0
+	while IFS= read -r line; do
+		m=$(echo "$line" | sed 's/×/x/g' | grep -oE '[0-9]{3,5}x[0-9]{3,5}@[0-9]+(\.[0-9]+)?' | head -n1)
+		[ -n "$m" ] || continue
+		w=${m%%x*}; h=${m#*x}; h=${h%@*}; hz=${m#*@}
+		hz=$(printf '%.0f' "$hz" 2>/dev/null) || continue
+		[ "$hz" -ge 23 ] && [ "$hz" -le 1000 ] || continue
+		MODES+="$w $h $hz"$'\n'
+		[ -z "$PREF" ] && echo "$line" | grep -q preferred && PREF="$w $h"
+	done <<<"$out"
+}
+
 native() {
 	# Native resolution = the screen's preferred (first) timing; its refresh = the highest
 	# rate the screen reports at that size.
 	local w h _
-	read -r w h _ <<<"$(echo "$MODES" | head -n1)"
+	read -r w h _ <<<"$(echo "$MODES" | grep -v '^$' | head -n1)"
+	[ -n "${EDID_FIRST:-}" ] && read -r w h <<<"$EDID_FIRST"
+	[ -z "${EDID_FIRST:-}" ] && [ -n "$PREF" ] && read -r w h <<<"$PREF"
 	echo "$MODES" | awk -v w="$w" -v h="$h" '$1 == w && $2 == h' | sort -k3,3nr | head -n1
+}
+
+collect() {
+	parse
+	EDID_FIRST=$(echo "$MODES" | grep -v '^$' | head -n1 | awk '{print $1" "$2}')
+	from_drm_info
+	[ -n "$(echo "$MODES" | grep -v '^$')" ]
 }
 
 case "${1:---native}" in
 	--modes)
-		parse && echo "$MODES" | grep -v '^$' | sort -u -k1,1nr -k2,2nr -k3,3nr ;;
+		collect && echo "$MODES" | grep -v '^$' | sort -u -k1,1nr -k2,2nr -k3,3nr ;;
 	--native|*)
-		if parse; then native; else
+		if collect; then native; else
 			# No EDID: fall back to the kernel's preferred mode at 60 Hz.
 			for c in /sys/class/drm/card*-*; do
 				[ "$(cat "$c/status" 2>/dev/null)" = "connected" ] || continue

@@ -10,6 +10,8 @@ INTENT_FILE="$XDG_RUNTIME_DIR/forge-intent"   # written by the UI just before it
 FIRST_FILE="$XDG_RUNTIME_DIR/forge-first-boot-done"
 SHELL_DIR="/opt/forge/shell"
 
+export FORGE_SESSION=1    # the console UI knows it's running as the real console session
+
 # In-game performance overlay / benchmark logging for every game (controlled by Settings).
 export MANGOHUD=1
 export MANGOHUD_CONFIGFILE="$HOME/.config/MangoHud/MangoHud.conf"
@@ -22,7 +24,8 @@ start_steam() {
 	if ! pgrep -x steam >/dev/null; then
 		# Write queued Steam settings (Proton versions, launch options, account switch)
 		# while Steam is closed, so Steam picks them up as it starts.
-		godot --headless --path "$SHELL_DIR" -- --apply-pending >> "$LOG" 2>&1
+		# Never let this block the console from starting (it used to hang on some exits).
+		timeout -k 3 20 godot --headless --path "$SHELL_DIR" -- --apply-pending >> "$LOG" 2>&1
 		echo "[forge] starting Steam in the background" >> "$LOG"
 		steam -silent -nofriendsui -nochatui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1 &
 	fi
@@ -71,7 +74,7 @@ import_ok() {
 if ! import_ok; then
 	echo "[forge] import cache incomplete: rebuilding it" >> "$LOG"
 	rm -f "$SHELL_DIR/.godot/forge-import.ok"
-	if godot --headless --path "$SHELL_DIR" --import >> "$LOG" 2>&1; then
+	if timeout -k 5 600 godot --headless --path "$SHELL_DIR" --import >> "$LOG" 2>&1; then
 		sync
 		touch "$SHELL_DIR/.godot/forge-import.ok"
 		sync

@@ -254,5 +254,5 @@ func _collect_bg() -> void:
 
 func _exit_tree() -> void:
 	for t in _bg:
-		WorkerThreadPool.wait_for_task_completion(t)
+		TaskWait.on_exit(t)
 	_bg.clear()
