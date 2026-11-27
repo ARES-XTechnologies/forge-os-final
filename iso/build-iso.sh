@@ -26,7 +26,7 @@ sed -i 's/^iso_application=.*/iso_application="FORGE OS Installer"/' "$PROFILE/p
 # Make the installer executable inside the image
 sed -i 's|^file_permissions=(|file_permissions=(\n  ["/usr/local/bin/forge-install"]="0:0:755"|' "$PROFILE/profiledef.sh"
 # FORGE system scripts keep their run permission on the USB too (Windows git drops it).
-for s in forge-session forge-inner forge-game forge-recovery forge-run forge-helper forge-drives forge-tune forge-fsr forge-system-install; do
+for s in forge-session forge-inner forge-game forge-recovery forge-run forge-helper forge-drives forge-tune forge-fsr forge-system-install forge-display; do
 	sed -i "s|^file_permissions=(|file_permissions=(\\n  [\"/opt/forge/system/$s\"]=\"0:0:755\"|" "$PROFILE/profiledef.sh"
 done
 

@@ -40,7 +40,7 @@ func write_fsr_conf() -> void:
 	var all: Dictionary = Config.get_v("games.settings")
 	for appid in all:
 		var m := str((all[appid] as Dictionary).get("fsr", ""))
-		if m in ["off", "balanced", "performance"]:
+		if m in ["off", "fidelity", "balanced", "performance", "ultra"]:
 			lines.append("%s=%s" % [appid, m])
 	var g := FileAccess.open(conf_dir + "/fsr-games.conf", FileAccess.WRITE)
 	if g:
@@ -293,6 +293,17 @@ func switch_to_big_picture() -> void:
 
 func _quit(code: int) -> void:
 	Config.save_now()
+	# Tell the session what we're doing before closing, and arm a watchdog: if closing ever
+	# hangs (a background job that never finishes), FORGE is force-closed after 6 seconds
+	# and the session still carries out the restart / power off.
+	var rt := OS.get_environment("XDG_RUNTIME_DIR")
+	if rt != "":
+		var f := FileAccess.open(rt + "/forge-intent", FileAccess.WRITE)
+		if f:
+			f.store_string(str(code))
+			f.close()
+	if OS.has_feature("linux") and not OS.has_feature("editor"):
+		OS.create_process("sh", ["-c", "sleep 6; kill -9 %d 2>/dev/null" % OS.get_process_id()])
 	get_tree().quit(code)
 
 # ------------------------------------------------------------------ display
@@ -318,7 +329,63 @@ func display_modes() -> Array:
 	out.sort_custom(func(a, b): return a.x * a.y > b.x * b.y)
 	return out
 
-const REFRESH_RATES := [60, 75, 90, 100, 120, 144, 165, 170, 180, 240, 360]
+const REFRESH_RATES := [60, 75, 90, 100, 120, 144, 165, 170, 180, 200, 240, 280, 360, 480]
+
+var _native := Vector3i.ZERO     # x, y = native resolution, z = highest refresh at it
+var _edid_modes := []            # Vector3i(w, h, hz) the screen reports
+
+## The screen's own best mode (from its EDID): native resolution at its highest refresh rate.
+func native_mode() -> Vector3i:
+	if _native != Vector3i.ZERO:
+		return _native
+	var tool := "/usr/lib/forge/forge-display"
+	if FileAccess.file_exists(tool):
+		var out := []
+		OS.execute(tool, ["--modes"], out)
+		for line in (str(out[0]) if out.size() > 0 else "").split("\n", false):
+			var p := line.strip_edges().split(" ", false)
+			if p.size() == 3 and p[0].is_valid_int():
+				_edid_modes.append(Vector3i(int(p[0]), int(p[1]), int(p[2])))
+		out = []
+		OS.execute(tool, ["--native"], out)
+		var n := (str(out[0]) if out.size() > 0 else "").strip_edges().split(" ", false)
+		if n.size() == 3 and n[0].is_valid_int():
+			_native = Vector3i(int(n[0]), int(n[1]), int(n[2]))
+	if _native == Vector3i.ZERO:
+		var m := display_modes()
+		_native = Vector3i(m[0].x, m[0].y, 60) if not m.is_empty() else Vector3i(1920, 1080, 60)
+	return _native
+
+## Settings › Display values in effect: 0 in the config means "the screen's own (native)".
+func display_width() -> int:
+	var v := Config.get_i("display.width")
+	return v if v > 0 else native_mode().x
+
+func display_height() -> int:
+	var v := Config.get_i("display.height")
+	return v if v > 0 else native_mode().y
+
+func display_refresh() -> int:
+	var v := Config.get_i("display.refresh")
+	return v if v > 0 else native_mode().z
+
+## Refresh rates to offer: every rate the screen reports, plus the common ones up to its
+## highest (the screen's own top rate, e.g. 220 Hz, is always in the list).
+func refresh_rates() -> Array:
+	var top := native_mode().z
+	var rates := {}
+	for r in REFRESH_RATES:
+		if r <= top:
+			rates[r] = true
+	for m in _edid_modes:
+		rates[(m as Vector3i).z] = true
+	rates[top] = true
+	var cur := Config.get_i("display.refresh")
+	if cur > 0:
+		rates[cur] = true
+	var out := rates.keys()
+	out.sort()
+	return out
 
 ## Writes the file the session reads before starting Gamescope.
 func write_session_conf() -> void:
@@ -326,9 +393,9 @@ func write_session_conf() -> void:
 	if f == null:
 		return
 	f.store_line("# Written by FORGE Settings. Applied when the session restarts.")
-	f.store_line("WIDTH=%d" % Config.get_i("display.width"))
-	f.store_line("HEIGHT=%d" % Config.get_i("display.height"))
-	f.store_line("REFRESH=%d" % Config.get_i("display.refresh"))
+	f.store_line("WIDTH=%d" % display_width())
+	f.store_line("HEIGHT=%d" % display_height())
+	f.store_line("REFRESH=%d" % display_refresh())
 	f.store_line("HDR=%d" % int(Config.get_b("display.hdr")))
 	f.store_line("VRR=%d" % int(Config.get_b("display.vrr")))
 	f.store_line("INTRO=%d" % int(Config.get_b("appearance.intro")))
@@ -381,7 +448,7 @@ func factory_reset(full: bool) -> void:
 			"rm -f \"%s/config/loginusers.vdf\"" % SteamLib.root,
 			"sed -i '/AutoLoginUser/d' \"$HOME/.steam/registry.vdf\""]
 	OS.execute("sh", PackedStringArray(["-c", "; ".join(cmds)]))
-	get_tree().quit(EXIT_RESTART_SESSION)
+	_quit(EXIT_RESTART_SESSION)
 
 const PRESETS := {
 	"ultra": {"appearance.glass_refraction": 1.0, "appearance.glass_dispersion": 1.0, "appearance.glow": true, "appearance.glow_motion": true, "appearance.wallpaper_animated": true, "appearance.parallax": true, "appearance.glow_strength": 1.0},

@@ -112,6 +112,6 @@ func _push() -> void:
 	_set_param("glow_mode", ["adaptive", "accent", "gold", "ice", "rainbow"].find(Config.get_s("appearance.glow_color")))
 	_set_param("glow_motion", Config.get_b("appearance.glow_motion") and not Config.get_b("motion.reduce"))
 	_set_param("glow_seed", _seed)
-	_set_param("style", ["liquid", "frosted", "matte"].find(Config.get_s("appearance.glass_style")))
+	_set_param("style", max(0, ["liquid", "mist", "frosted", "matte"].find(Config.get_s("appearance.glass_style"))))
 	_set_param("layered", nested or ingame)
 	_set_param("smoke", 0.82 if ingame else 0.0)

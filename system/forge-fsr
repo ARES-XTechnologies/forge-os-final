@@ -3,13 +3,16 @@
 # Every game starts through this: Steam games via their launch options
 # ("/usr/lib/forge/forge-fsr %command%", added by FORGE), your own games via forge-run.
 #
-#   Off (default)  the game starts exactly as it would without FORGE: native resolution.
-#   Balanced       renders at 83% and FSR 1 upscales to your screen.
-#   Performance    renders at 67% and FSR 1 upscales to your screen.
+#   Off (default)       the game starts exactly as it would without FORGE: native resolution.
+#   Fidelity            FSR Quality: renders at 67% (1.5x) and FSR upscales to your screen.
+#   Balanced            FSR Balanced: renders at 59% (1.7x).
+#   Performance         FSR Performance: renders at 50% (2x).
+#   Ultra Performance   FSR Ultra Performance: renders at 33% (3x).
+# These are AMD's official FSR scale factors.
 #
 # The mode comes from Settings › Performance (all games) or a game's own options (one game):
-#   ~/.config/forge/fsr.conf        MODE=off|balanced|performance
-#   ~/.config/forge/fsr-games.conf  <appid>=off|balanced|performance   (overrides, one per line)
+#   ~/.config/forge/fsr.conf        MODE=off|fidelity|balanced|performance|ultra
+#   ~/.config/forge/fsr-games.conf  <appid>=off|fidelity|balanced|performance|ultra   (overrides, one per line)
 # It's read at launch, so a change applies from the next time a game starts.
 CONF="$HOME/.config/forge"
 MODE=off
@@ -22,18 +25,26 @@ if [ -n "$APPID" ] && [ -f "$CONF/fsr-games.conf" ]; then
 fi
 
 case "$MODE" in
-	balanced) PCT=83 ;;
-	performance) PCT=67 ;;
+	fidelity) PM=667 ;;
+	balanced) PM=588 ;;
+	performance) PM=500 ;;
+	ultra) PM=333 ;;
 	*) exec "$@" ;;
 esac
 command -v gamescope >/dev/null || exec "$@"
 
 # Output size: the console's resolution from Settings › Display.
-WIDTH=1920; HEIGHT=1080; REFRESH=60
+WIDTH=0; HEIGHT=0; REFRESH=0
 # shellcheck disable=SC1091
 [ -f "$CONF/session.conf" ] && . "$CONF/session.conf"
-RW=$(( WIDTH * PCT / 100 / 2 * 2 ))
-RH=$(( HEIGHT * PCT / 100 / 2 * 2 ))
+if [ "${WIDTH:-0}" -le 0 ] || [ "${HEIGHT:-0}" -le 0 ] || [ "${REFRESH:-0}" -le 0 ]; then
+	read -r NW NH NHZ < <(/usr/lib/forge/forge-display --native 2>/dev/null)
+	[ "${WIDTH:-0}" -le 0 ] && WIDTH=${NW:-1920}
+	[ "${HEIGHT:-0}" -le 0 ] && HEIGHT=${NH:-1080}
+	[ "${REFRESH:-0}" -le 0 ] && REFRESH=${NHZ:-60}
+fi
+RW=$(( WIDTH * PM / 1000 / 2 * 2 ))
+RH=$(( HEIGHT * PM / 1000 / 2 * 2 ))
 
 ARGS=(-w "$RW" -h "$RH" -W "$WIDTH" -H "$HEIGHT" -r "$REFRESH" -F fsr -f)
 # Inside the console's own gamescope, the game's gamescope draws through X (most reliable).

@@ -9,9 +9,10 @@ const LEGACY_PATH := "user://settings.json"
 
 const DEFAULTS := {
 	# Display (applied by the session on restart)
-	"display.width": 1920,
-	"display.height": 1080,
-	"display.refresh": 60,
+	"display.width": 0,                    # 0 = the screen's native resolution
+	"display.height": 0,
+	"display.refresh": 0,                  # 0 = the screen's highest refresh rate (e.g. 220 Hz)
+	"display.custom": false,               # true once you pick a mode yourself in Settings
 	"display.hdr": false,
 	"display.vrr": false,
 	"display.ui_scale": 1.0,
@@ -28,7 +29,7 @@ const DEFAULTS := {
 	"appearance.glass_tint": 0.10,
 	"appearance.glass_dispersion": 1.0,
 	"appearance.glass_brightness": 1.0,
-	"appearance.glass_style": "liquid",   # liquid (default), frosted, matte
+	"appearance.glass_style": "liquid",   # liquid (clear, default), mist, frosted, matte
 	"appearance.glow": false,
 	"appearance.glow_color": "adaptive",
 	"appearance.glow_strength": 0.8,      # 1.0 = full (the original brightness)
@@ -91,7 +92,7 @@ const DEFAULTS := {
 	"capture.clips": false,
 	"capture.clip_length": 30,
 	# Performance & benchmark
-	"fsr.mode": "off",                     # off (default), balanced, performance: FSR for every game
+	"fsr.mode": "off",                     # off (default), fidelity, balanced, performance, ultra: FSR for every game
 	"perf.overlay": "off",          # off | fps | detailed | full
 	"perf.overlay_position": "top-left",
 	"perf.logging": false,
@@ -132,6 +133,12 @@ func _load_file(p: String) -> void:
 					var b = DEFAULTS[k]
 					if typeof(a) == typeof(b) or (_numeric(a) and _numeric(b)):
 						_data[k] = a
+	# Until you choose a mode yourself, the console always follows the screen's own best mode
+	# (older versions saved a fixed 1920x1080 at 60 Hz here).
+	if not bool(_data.get("display.custom", false)):
+		_data["display.width"] = 0
+		_data["display.height"] = 0
+		_data["display.refresh"] = 0
 
 ## Switch to another profile's settings file.
 func load_profile_file(p: String) -> void:

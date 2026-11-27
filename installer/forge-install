@@ -268,13 +268,19 @@ install_all() {
 
 	step 8 "Getting the fastest download servers…"
 	sed -i '/^#\[multilib\]/,/^#Include/ s/^#//' /etc/pacman.conf
-	sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf
+	sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
 	reflector --latest 20 --protocol https --sort rate --save /etc/pacman.d/mirrorlist >>"$LOG" 2>&1 || true
+	cp /etc/pacman.d/mirrorlist /tmp/forge-fast-mirrors
 	# Pin packages to the snapshot this FORGE release was tested with, so every console gets
 	# exactly the same, known-good versions (pacstrap copies this mirror list to the new system).
+	# The fast mirrors stay listed after the archive: any file the (single, sometimes slow)
+	# archive server refuses is fetched from them instead when they have the same version.
 	SNAP=$(grep -v '^#' "$SRC/system/os-snapshot" 2>/dev/null | head -n1 | tr -d '[:space:]')
 	if [ -n "$SNAP" ] && curl -fsI --max-time 20 "https://archive.archlinux.org/repos/$SNAP/core/os/x86_64/core.db" >/dev/null 2>&1; then
-		printf '# FORGE OS: packages pinned to the %s snapshot (tested with this release)\nServer = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$SNAP" "$SNAP" > /etc/pacman.d/mirrorlist
+		{
+			printf '# FORGE OS: packages pinned to the %s snapshot (tested with this release)\nServer = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$SNAP" "$SNAP"
+			grep '^Server' /tmp/forge-fast-mirrors
+		} > /etc/pacman.d/mirrorlist
 		log "packages pinned to snapshot $SNAP"
 	else
 		log "snapshot '$SNAP' unreachable: installing from the fastest current mirrors"
@@ -282,8 +288,17 @@ install_all() {
 	pacman -Syy --noconfirm >>"$LOG" 2>&1
 
 	step 12 "Downloading and installing (this is the long part)…"
-	pacstrap -K "$TARGET" "${PKGS[@]}" >>"$LOG" 2>&1
+	if ! pacstrap -K "$TARGET" "${PKGS[@]}" >>"$LOG" 2>&1; then
+		# The archive server is busy: install the current versions from the fast mirrors
+		# instead of stopping (updates later bring the console to the tested snapshot).
+		log "snapshot download failed: retrying from the fastest current mirrors"
+		cp /tmp/forge-fast-mirrors /etc/pacman.d/mirrorlist
+		pacman -Syy --noconfirm >>"$LOG" 2>&1
+		pacstrap -K "$TARGET" "${PKGS[@]}" >>"$LOG" 2>&1
+	fi
 	cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
+	mkdir -p "$TARGET/var/lib/forge"
+	grep '^Server' /tmp/forge-fast-mirrors > "$TARGET/var/lib/forge/fast-mirrors" 2>/dev/null || true
 	genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
 	step 78 "Connecting your other drives…"

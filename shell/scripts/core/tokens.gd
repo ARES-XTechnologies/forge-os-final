@@ -2,7 +2,7 @@ extends Node
 ## Design tokens: the single source of truth for colour, type, spacing and motion.
 
 const OS_NAME := "FORGE"
-const OS_VERSION := "1.4.0"
+const OS_VERSION := "1.4.1"
 const STUDIO := "Blacksmith Games"
 
 # ---------- Colour ----------

@@ -36,7 +36,7 @@ func _rows() -> Array:
 	if game.get("source", "steam") != "steam":
 		if game.get("source", "") in ["local", "usb"]:
 			# Games you added start through forge-fsr too, so they get their own FSR choice.
-			var lfsr := SettingRow.choice("FSR upscaling", "", [["", "Same as console"], ["off", "Off (Fidelity)"], ["balanced", "Balanced"], ["performance", "Performance"]], "gauge", "From the next launch")
+			var lfsr := SettingRow.choice("FSR upscaling", "", [["", "Same as console"]] + GameSettings.FSR_CHOICES, "gauge", "From the next launch")
 			lfsr.getter = func(): return str(Config.game_get(appid, "fsr", ""))
 			lfsr.setter = func(v): Config.game_set(appid, "fsr", null if v == "" else v)
 			rows.append(lfsr)
@@ -55,7 +55,7 @@ func _rows() -> Array:
 	ov.setter = func(v):
 		Config.game_set(appid, "overlay", null if v == "" else v)
 		GameSettings.write_per_game_mangohud(appid)
-	var fsr := SettingRow.choice("FSR upscaling", "", [["", "Same as console"], ["off", "Off (Fidelity)"], ["balanced", "Balanced"], ["performance", "Performance"]], "gauge", "From the next launch. If the game has its own FSR, use one or the other")
+	var fsr := SettingRow.choice("FSR upscaling", "", [["", "Same as console"]] + GameSettings.FSR_CHOICES, "gauge", "From the next launch. If the game has its own FSR, use one or the other")
 	fsr.getter = func(): return str(Config.game_get(appid, "fsr", ""))
 	fsr.setter = func(v): Config.game_set(appid, "fsr", null if v == "" else v)
 	var proton := SettingRow.choice("Proton version", "", GameSettings.proton_options(), "wrench", "Which compatibility layer runs this Windows game")

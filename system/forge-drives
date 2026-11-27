@@ -8,11 +8,12 @@
 #   A drive Windows left "dirty" or hibernated → tries ntfs-3g, then read-only as a last resort.
 set -u
 LOG=/var/log/forge-drives.log
-OPTS_NTFS3="uid=1000,gid=1000,umask=022,windows_names"
-OPTS_NTFS3G="uid=1000,gid=1000,umask=022,windows_names,big_writes"
+U=$(id -u forge 2>/dev/null || echo 1000); G=$(id -g forge 2>/dev/null || echo 1000)
+OPTS_NTFS3="uid=$U,gid=$G,umask=022"
+OPTS_NTFS3G="uid=$U,gid=$G,umask=022,windows_names"
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
-modprobe ntfs3 2>/dev/null
+modprobe ntfs3 2>/dev/null || modprobe ntfs 2>/dev/null
 
 is_mounted() { findmnt -rn -S "$1" >/dev/null 2>&1; }
 
@@ -25,28 +26,49 @@ unique_dir() {
 	echo "$d"
 }
 
+ERRDIR=/run/forge-drives        # last error per drive, shown by "Add a game" if a drive won't open
+mkdir -p "$ERRDIR"
+
+# One mount attempt; keeps its error message for the on-screen reason.
+attempt() { # label dev dir mount-args...
+	local label="$1" dev="$2" dir="$3"; shift 3
+	local err
+	if err=$("$@" 2>&1); then
+		log "$dev → $dir ($label)"
+		rm -f "$ERRDIR/$(basename "$dev")"
+		return 0
+	fi
+	[ -n "$err" ] && { echo "$err" | tail -n1 > "$ERRDIR/$(basename "$dev")"; echo "$label: $err" >> "$LOG"; }
+	return 1
+}
+
 try_mount() { # dev fstype dir
 	local dev="$1" fs="$2" dir="$3"
 	case "$fs" in
 		ntfs)
+			# Kernel drivers first (fast), then the ntfs-3g driver (works on almost anything).
+			local drivers=() d
+			grep -qw ntfs3 /proc/filesystems && drivers+=(ntfs3)
+			grep -qw ntfs /proc/filesystems && drivers+=(ntfs)
 			if [ "${WIN:-0}" = 1 ]; then
-				mount -t ntfs3 -o "ro,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (Windows, read-only)"; return 0; }
-				mount -t ntfs-3g -o "ro,$OPTS_NTFS3G" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (Windows, read-only, ntfs-3g)"; return 0; }
+				for d in "${drivers[@]}"; do attempt "Windows, read-only, $d" "$dev" "$dir" mount -t "$d" -o "ro,$OPTS_NTFS3" "$dev" "$dir" && return 0; done
+				attempt "Windows, read-only, ntfs-3g" "$dev" "$dir" ntfs-3g -o "ro,$OPTS_NTFS3G" "$dev" "$dir" && return 0
 				return 1
 			fi
-			mount -t ntfs3 -o "rw,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (ntfs3)"; return 0; }
-			mount -t ntfs-3g -o "rw,$OPTS_NTFS3G" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (ntfs-3g)"; return 0; }
-			mount -t ntfs3 -o "ro,$OPTS_NTFS3" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir (READ-ONLY: Windows left it locked; shut Windows down fully to fix)"; return 0; }
+			for d in "${drivers[@]}"; do attempt "$d" "$dev" "$dir" mount -t "$d" -o "rw,$OPTS_NTFS3" "$dev" "$dir" && return 0; done
+			attempt "ntfs-3g" "$dev" "$dir" ntfs-3g -o "rw,$OPTS_NTFS3G" "$dev" "$dir" && return 0
+			# Windows left it locked (hibernated / needs a disk check): open it read-only.
+			for d in "${drivers[@]}"; do attempt "READ-ONLY $d: Windows left it locked" "$dev" "$dir" mount -t "$d" -o "ro,$OPTS_NTFS3" "$dev" "$dir" && return 0; done
+			attempt "READ-ONLY ntfs-3g: Windows left it locked" "$dev" "$dir" ntfs-3g -o "ro,$OPTS_NTFS3G" "$dev" "$dir" && return 0
 			return 1 ;;
 		exfat|vfat)
-			mount -o "rw,uid=1000,gid=1000,umask=022" "$dev" "$dir" 2>>"$LOG" && { log "$dev → $dir ($fs)"; return 0; }
+			attempt "$fs" "$dev" "$dir" mount -o "rw,uid=$U,gid=$G,umask=022" "$dev" "$dir" && return 0
 			return 1 ;;
 		*)
-			mount -o rw "$dev" "$dir" 2>>"$LOG" && { chown 1000:1000 "$dir" 2>/dev/null; log "$dev → $dir ($fs)"; return 0; }
+			attempt "$fs" "$dev" "$dir" mount -o rw "$dev" "$dir" && { chown "$U:$G" "$dir" 2>/dev/null; return 0; }
 			return 1 ;;
 	esac
 }
-
 
 while read -r line; do
 	L_PATH=""; L_FSTYPE=""; L_LABEL=""; L_SIZE=0; L_TYPE=""; L_PARTLABEL=""
@@ -61,7 +83,7 @@ while read -r line; do
 	WIN=0
 	if [ "$fs" = ntfs ]; then
 		tmp=$(mktemp -d)
-		if mount -t ntfs3 -o ro "$dev" "$tmp" 2>/dev/null || mount -t ntfs-3g -o ro "$dev" "$tmp" 2>/dev/null; then
+		if mount -t ntfs3 -o ro "$dev" "$tmp" 2>/dev/null || mount -t ntfs -o ro "$dev" "$tmp" 2>/dev/null || ntfs-3g -o ro "$dev" "$tmp" 2>/dev/null; then
 			[ -d "$tmp/Windows/System32" ] && WIN=1
 			umount "$tmp"
 		fi

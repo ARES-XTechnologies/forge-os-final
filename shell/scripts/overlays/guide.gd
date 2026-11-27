@@ -41,7 +41,7 @@ func build() -> void:
 		Sys.set_volume(v)
 	var rows: Array = [
 		SettingRow.header("Play"),
-		SettingRow.choice("FSR", "fsr.mode", [["off", "Off (Fidelity)"], ["balanced", "Balanced"], ["performance", "Performance"]], "gauge", "From the next game start"),
+		SettingRow.choice("FSR", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "From the next game start"),
 		SettingRow.choice("Game overlay", "perf.overlay", [["off", "Off"], ["fps", "FPS only"], ["detailed", "Detailed"], ["full", "Everything"]], "chart"),
 		SettingRow.toggle("Record benchmarks", "perf.logging", "timer"),
 		vol,

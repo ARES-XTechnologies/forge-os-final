@@ -203,22 +203,41 @@ func _build_rows(id: String) -> Array:
 			]
 		"display":
 			_modes = Sys.display_modes()
+			var nat := Sys.native_mode()
 			var mode_opts := []
 			for m in _modes:
-				mode_opts.append(["%dx%d" % [m.x, m.y], "%d × %d" % [m.x, m.y]])
-			var res := SettingRow.choice("Resolution", "", mode_opts, "display")
-			res.getter = func(): return "%dx%d" % [Config.get_i("display.width"), Config.get_i("display.height")]
+				var native: bool = m.x == nat.x and m.y == nat.y
+				mode_opts.append(["%dx%d" % [m.x, m.y], "%d × %d%s" % [m.x, m.y, " (default)" if native else ""]])
+			var res := SettingRow.choice("Resolution", "", mode_opts, "display", "Default is your screen's own resolution")
+			res.getter = func(): return "%dx%d" % [Sys.display_width(), Sys.display_height()]
 			res.setter = func(v: String):
 				var p := v.split("x")
+				Config.set_v("display.custom", true)
 				Config.set_v("display.width", int(p[0]))
 				Config.set_v("display.height", int(p[1]))
+				if Config.get_i("display.refresh") <= 0:
+					Config.set_v("display.refresh", Sys.display_refresh())
 			var hz := []
-			for r in Sys.REFRESH_RATES:
-				hz.append([r, "%d Hz" % r])
+			for r in Sys.refresh_rates():
+				hz.append([r, "%d Hz%s" % [r, " (default)" if r == nat.z else ""]])
+			var hz_row := SettingRow.choice("Refresh rate", "", hz, "gauge", "Default is your screen's highest: %d Hz. The whole console runs at this rate" % nat.z)
+			hz_row.getter = func(): return Sys.display_refresh()
+			hz_row.setter = func(v):
+				Config.set_v("display.custom", true)
+				if Config.get_i("display.width") <= 0:
+					Config.set_v("display.width", Sys.display_width())
+					Config.set_v("display.height", Sys.display_height())
+				Config.set_v("display.refresh", int(v))
+			var reset_row := SettingRow.action("Use my screen's best mode", func():
+				Config.set_v("display.custom", false)
+				Config.set_v("display.width", 0)
+				Config.set_v("display.height", 0)
+				Config.set_v("display.refresh", 0)
+				_rows.refresh_all(), "restart", "%d × %d at %d Hz (default)" % [nat.x, nat.y, nat.z])
 			var scale_row := SettingRow.slider("Interface size", "display.ui_scale", 0.8, 1.3, 0.05, mult, "widgets", "Make the whole console UI bigger or smaller")
 			return [
 				SettingRow.header("Output"), res,
-				SettingRow.choice("Refresh rate", "display.refresh", hz, "gauge"),
+				hz_row, reset_row,
 				SettingRow.toggle("HDR", "display.hdr", "sparkle", "Needs an HDR display and an HDR-capable game"),
 				SettingRow.toggle("Variable refresh rate", "display.vrr", "chart", "FreeSync / G-SYNC Compatible displays"),
 				SettingRow.action("Apply display changes", _apply_display, "check", "The console UI restarts in a second. Games are not affected."),
@@ -240,7 +259,7 @@ func _build_rows(id: String) -> Array:
 				SettingRow.toggle("Parallax", "appearance.parallax", "image", "The sky shifts gently as you move between games"),
 				SettingRow.toggle("Match colours to the game", "appearance.dynamic", "palette", "The sky takes on the colours of the game you're on"),
 				SettingRow.header("Glass"),
-				SettingRow.choice("Glass style", "appearance.glass_style", [["liquid", "Liquid glass"], ["frosted", "Frosted glass"], ["matte", "Matte"]], "sparkle", "Liquid: clear and shiny. Frosted: soft and milky. Matte: calm, least shine and see-through"),
+				SettingRow.choice("Glass style", "appearance.glass_style", [["liquid", "Liquid glass"], ["mist", "Liquid mist"], ["frosted", "Frosted glass"], ["matte", "Matte"]], "sparkle", "Liquid: clear like water. Mist: clear with a soft veil. Frosted: soft and milky. Matte: calm"),
 				SettingRow.slider("Refraction", "appearance.glass_refraction", 0.0, 2.0, 0.1, pct, "sparkle"),
 				SettingRow.slider("Colour split", "appearance.glass_dispersion", 0.0, 2.0, 0.1, pct, "palette"),
 				SettingRow.slider("Tint", "appearance.glass_tint", 0.0, 0.3, 0.02, func(v): return "%d%%" % int(float(v) / 0.3 * 100.0), "palette"),
@@ -373,7 +392,7 @@ func _build_rows(id: String) -> Array:
 		"performance":
 			return [
 				SettingRow.header("Upscaling and speed"),
-				SettingRow.choice("FSR upscaling", "fsr.mode", [["off", "Off (Fidelity)"], ["balanced", "Balanced"], ["performance", "Performance"]], "gauge", "Balanced 83% · Performance 67% · from the next game"),
+				SettingRow.choice("FSR upscaling", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "Off is native. Fidelity 67% · Balanced 59% · Performance 50% · Ultra 33% · from the next game"),
 				SettingRow.info("CPU and GPU", func(): return "Always at full speed", "cpu"),
 				SettingRow.choice("Frame rate limit", "perf.fps_limit", [[0, "Off"], [30, "30 FPS"], [40, "40 FPS"], [60, "60 FPS"], [90, "90 FPS"], [120, "120 FPS"], [144, "144 FPS"], [165, "165 FPS"], [240, "240 FPS"]], "timer"),
 				SettingRow.header("In-game overlay"),
@@ -477,7 +496,7 @@ func _rebuild_if(id: String) -> void:
 
 # ------------------------------------------------------------------ actions
 func _apply_display() -> void:
-	shell.confirm("Apply display settings?", "%d × %d at %d Hz. The console UI restarts now." % [Config.get_i("display.width"), Config.get_i("display.height"), Config.get_i("display.refresh")],
+	shell.confirm("Apply display settings?", "%d × %d at %d Hz. The console UI restarts now." % [Sys.display_width(), Sys.display_height(), Sys.display_refresh()],
 		[["Apply", "check"], ["Cancel", "close"]], func(i):
 			if i == 0:
 				Sys.write_session_conf()

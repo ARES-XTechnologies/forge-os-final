@@ -92,7 +92,11 @@ func _mount_and_open(path: String) -> void:
 			if at != "" and DirAccess.dir_exists_absolute(at):
 				_open_dir(at)
 			else:
-				shell.toast("Couldn't open that drive. If it's a Windows drive, shut Windows down fully (not restart) and try again.", "info", Tokens.BAD)
+				# Show the real reason the system gave (kept by forge-drives), so it can be fixed.
+				var why := Sys.read_text("/run/forge-drives/" + path.get_file()).strip_edges()
+				if why.length() > 90:
+					why = why.substr(0, 90) + "…"
+				shell.toast("Couldn't open that drive" + (": " + why if why != "" else ". If it's a Windows drive, shut Windows down fully and try again."), "info", Tokens.BAD)
 				if _dir == "":
 					_places()))
 

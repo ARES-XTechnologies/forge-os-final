@@ -58,13 +58,24 @@ case "${1:-}" in
 	mount-drives)
 		/usr/lib/forge/forge-drives
 		;;
+	power)
+		# Used only if the normal restart / power off didn't happen: skip waiting for
+		# services that won't stop (data is synced and drives unmounted first).
+		case "${2:-}" in reboot|poweroff) ;; *) exit 2 ;; esac
+		log "forced $2"
+		sync
+		systemctl "$2" -i --no-block 2>/dev/null
+		sleep 10
+		sync
+		systemctl "$2" --force
+		;;
 	timezone)
 		tz="${2:-}"
 		[ -f "/usr/share/zoneinfo/$tz" ] || exit 2
 		timedatectl set-timezone "$tz"
 		;;
 	*)
-		echo "usage: forge-helper update | apply-update | rollback | timezone <Area/City>" >&2
+		echo "usage: forge-helper update | apply-update | rollback | timezone <Area/City> | mount-drives | power reboot|poweroff" >&2
 		exit 2
 		;;
 esac

@@ -86,7 +86,7 @@ func build() -> void:
 		GameSettings.write_per_game_mangohud(appid)
 	var rows: Array = [
 		vol,
-		SettingRow.choice("FSR", "fsr.mode", [["off", "Off (Fidelity)"], ["balanced", "Balanced"], ["performance", "Performance"]], "gauge", "From the next game start"),
+		SettingRow.choice("FSR", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "From the next game start"),
 		SettingRow.choice("Overlay", "perf.overlay", [["off", "Off"], ["fps", "FPS only"], ["detailed", "Detailed"], ["full", "Everything"]], "chart", "Changes show after the game restarts"),
 		fps,
 		SettingRow.toggle("Pause game while this menu is open", "ingame.pause", "moon", "Turn off for online games"),

@@ -21,21 +21,43 @@ log "session start"
 steam_shutdown() {
 	if pgrep -x steam >/dev/null; then
 		log "asking Steam to shut down"
-		steam -shutdown >/dev/null 2>&1 &
+		timeout 5 steam -shutdown >/dev/null 2>&1 &
 		for _ in $(seq 1 20); do
 			pgrep -x steam >/dev/null || break
 			sleep 0.5
 		done
 		pkill -x steam 2>/dev/null
+		sleep 1
+		pkill -9 -x steam 2>/dev/null
 	fi
+}
+
+# Restart / power off that always happens: the normal way first, then the root helper,
+# which forces it if something (a stuck service) blocks the normal way.
+power() { # reboot | poweroff
+	log "power: $1"
+	sync
+	systemctl "$1" >> "$LOG" 2>&1 &
+	sleep 15
+	log "power: still running after 15 s, forcing $1"
+	sudo -n /usr/lib/forge/forge-helper power "$1" >> "$LOG" 2>&1
+	sleep 30
+	systemctl "$1" --force >> "$LOG" 2>&1
 }
 
 fails=0
 while true; do
 	# Defaults, then whatever Settings › Display saved.
-	WIDTH=1920; HEIGHT=1080; REFRESH=60; HDR=0; VRR=0; INTRO=1
+	WIDTH=0; HEIGHT=0; REFRESH=0; HDR=0; VRR=0; INTRO=1
 	# shellcheck disable=SC1091
 	[ -f "$CONF_DIR/session.conf" ] && . "$CONF_DIR/session.conf"
+	# Not set (first boot) or 0: the screen's own best mode, e.g. 2560x1440 at 220 Hz.
+	if [ "${WIDTH:-0}" -le 0 ] || [ "${HEIGHT:-0}" -le 0 ] || [ "${REFRESH:-0}" -le 0 ]; then
+		read -r NW NH NHZ < <(/usr/lib/forge/forge-display --native 2>/dev/null)
+		[ "${WIDTH:-0}" -le 0 ] && WIDTH=${NW:-1920}
+		[ "${HEIGHT:-0}" -le 0 ] && HEIGHT=${NH:-1080}
+		[ "${REFRESH:-0}" -le 0 ] && REFRESH=${NHZ:-60}
+	fi
 
 	ARGS=(-W "$WIDTH" -H "$HEIGHT" -w "$WIDTH" -h "$HEIGHT" -r "$REFRESH" -f --rt --xwayland-count 2)
 	[ "$VRR" = "1" ] && ARGS+=(--adaptive-sync)
@@ -44,14 +66,25 @@ while true; do
 	rm -f "$ACTION_FILE"
 	log "gamescope ${ARGS[*]}"
 	started=$(date +%s)
-	gamescope "${ARGS[@]}" -- /usr/lib/forge/forge-inner >> "$LOG" 2>&1
+	gamescope "${ARGS[@]}" -- /usr/lib/forge/forge-inner <&0 >> "$LOG" 2>&1 &
+	gs_pid=$!
+	# Once the UI has asked for an action, gamescope gets 8 s to close before it's stopped.
+	while kill -0 "$gs_pid" 2>/dev/null; do
+		if [ -s "$ACTION_FILE" ]; then
+			for _ in $(seq 1 16); do kill -0 "$gs_pid" 2>/dev/null || break; sleep 0.5; done
+			kill "$gs_pid" 2>/dev/null; sleep 1; kill -9 "$gs_pid" 2>/dev/null
+			break
+		fi
+		sleep 0.5
+	done
+	wait "$gs_pid"
 	gs_code=$?
 	action="$(cat "$ACTION_FILE" 2>/dev/null)"
 	log "gamescope exited ($gs_code), action='$action'"
 
 	case "$action" in
-		poweroff) steam_shutdown; systemctl poweroff; exit 0 ;;
-		reboot)   steam_shutdown; systemctl reboot; exit 0 ;;
+		poweroff) steam_shutdown; power poweroff; exit 0 ;;
+		reboot)   steam_shutdown; power reboot; exit 0 ;;
 		restart)  fails=0; continue ;;
 	esac
 

@@ -106,8 +106,9 @@ Hold a direction and the scrolling speeds up the longer you hold it.
 
 - **Full-OS updates** (see above): app, system parts and all packages, pinned to a tested
   snapshot, with a real Undo.
-- **FSR for every game**: Settings › Performance (or the Guide / in-game menu): **Off
-  (Fidelity, default)**, **Balanced** (83% + FSR) or **Performance** (67% + FSR). Per game in
+- **FSR for every game**: Settings › Performance (or the Guide / in-game menu): **Off**
+  (native, default), **Fidelity** (FSR Quality, 67%), **Balanced** (59%), **Performance** (50%)
+  or **Ultra Performance** (33%): AMD's official FSR scales. Per game in
   the game's settings. Works on every Steam game and every game you added, even ones with no
   FSR option. Applies from the next game start. If a game has its own FSR/XeSS, use that *or*
   FORGE's, not both (they'd upscale twice). Steam games get `/usr/lib/forge/forge-fsr %command%`
@@ -117,12 +118,17 @@ Hold a direction and the scrolling speeds up the longer you hold it.
   kernel settings, compressed RAM swap, 16 GB shader cache. Older NVIDIA cards (GTX 900/1000)
   get the open-source driver: it works, but an AMD card is far better on FORGE.
 - **New glass**, closer to modern liquid glass: clear, lens-like, thin light on the corners.
-  Three styles in Settings › Appearance: **Liquid** (default), **Frosted**, **Matte**.
+  Four styles in Settings › Appearance: **Liquid** (water-clear, default), **Liquid mist**,
+  **Frosted**, **Matte**. Edges are anti-aliased at any resolution.
   Contour glow is now off by default; when on it starts at 80% brightness.
 - **New wallpapers**: Nebula, Satin, Caustics, Northern Lights, Orbs (plus Silk Ribbons), all in
   your colour palette, or **your own photo** (any drive or USB stick).
 - **Library**: focus starts on the top row (filters, **+**, sort); press down for your games.
 - **Stability**: fixed a crash every time FORGE closed or restarted (since v1.0).
+- **v1.4.1**: the console runs at your screen's own resolution and highest refresh rate by
+  default (read from the monitor, e.g. 220 Hz, marked "(default)"); Restart / Power off can't
+  hang any more; drives show the exact reason if one won't open; the installer and updates fall
+  back to the fast mirrors if the archive server is busy.
 - The Windows edition is kept as a backup in `archive/`.
 
 ## New in v1.2

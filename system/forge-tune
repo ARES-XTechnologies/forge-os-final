@@ -48,6 +48,10 @@ export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
 EOF
 	# GameMode: while a game runs, keep the CPU on the performance governor and the GPU at
 	# full speed (it already is; this just guarantees it if anything changed it).
+	# Restart / power off never waits minutes for a service that won't stop.
+	mkdir -p /etc/systemd/system.conf.d /etc/systemd/user.conf.d
+	printf '[Manager]\nDefaultTimeoutStopSec=10s\n' > /etc/systemd/system.conf.d/forge-timeouts.conf
+	printf '[Manager]\nDefaultTimeoutStopSec=10s\n' > /etc/systemd/user.conf.d/forge-timeouts.conf
 	cat > /etc/gamemode.ini <<'EOF'
 [general]
 desiredgov=performance

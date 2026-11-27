@@ -92,6 +92,8 @@ func set_steam_account(account: String) -> void:
 ## game exactly as before. Your own launch options are kept: "%command%" just gets FORGE's
 ## launcher in front of it.
 const FSR_PREFIX := "/usr/lib/forge/forge-fsr %command%"
+## FSR modes (AMD's official scale factors). Off is native resolution and the default.
+const FSR_CHOICES := [["off", "Off"], ["fidelity", "Fidelity (Quality)"], ["balanced", "Balanced"], ["performance", "Performance"], ["ultra", "Ultra Performance"]]
 
 static func with_fsr(opts: String) -> String:
 	if opts.contains("forge-fsr"):

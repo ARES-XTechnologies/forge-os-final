@@ -1,0 +1,119 @@
+#!/bin/bash
+# FORGE OS — reads your screen's own capabilities from its EDID (what the monitor reports
+# about itself), so FORGE can default to the screen's native resolution and its highest
+# refresh rate (for example 2560x1440 at 220 Hz), not a generic 60 Hz.
+#
+#   forge-display --native   prints "WIDTH HEIGHT HZ" of the screen's best mode
+#   forge-display --modes    prints one "WIDTH HEIGHT HZ" line per mode the screen reports
+#
+# Reads detailed timings from the base EDID block, CTA-861 extension blocks and DisplayID
+# blocks (where high refresh rates usually live). Needs no extra packages.
+set -u
+
+edid_file() {
+	local c
+	for c in /sys/class/drm/card*-*; do
+		[ "$(cat "$c/status" 2>/dev/null)" = "connected" ] || continue
+		[ -s "$c/edid" ] || continue
+		echo "$c/edid"
+		return 0
+	done
+	return 1
+}
+
+declare -a B=()
+MODES=""
+
+add_mode() { # w h pclk_hz htotal vtotal
+	local w=$1 h=$2 pclk=$3 ht=$4 vt=$5
+	[ "$w" -ge 320 ] && [ "$h" -ge 200 ] && [ "$ht" -gt 0 ] && [ "$vt" -gt 0 ] || return
+	# refresh in Hz, rounded to the nearest whole number (219.98 -> 220)
+	local hz=$(( (pclk * 10 / (ht * vt) + 5) / 10 ))
+	[ "$hz" -ge 23 ] && [ "$hz" -le 1000 ] || return
+	MODES+="$w $h $hz"$'\n'
+}
+
+dtd() { # offset: 18-byte detailed timing descriptor
+	local o=$1
+	local pclk=$(( B[o] | (B[o+1] << 8) ))
+	[ "$pclk" -gt 0 ] || return
+	local ha=$(( B[o+2] | ((B[o+4] >> 4) << 8) ))
+	local hb=$(( B[o+3] | ((B[o+4] & 15) << 8) ))
+	local va=$(( B[o+5] | ((B[o+7] >> 4) << 8) ))
+	local vb=$(( B[o+6] | ((B[o+7] & 15) << 8) ))
+	local interlaced=$(( (B[o+17] >> 7) & 1 ))
+	[ "$interlaced" = 1 ] && return
+	add_mode "$ha" "$va" $(( pclk * 10000 )) $(( ha + hb )) $(( va + vb ))
+}
+
+displayid_timing() { # offset of a 20-byte DisplayID timing, clock unit in Hz
+	local o=$1 unit=$2
+	local pclk=$(( (B[o] | (B[o+1] << 8) | (B[o+2] << 16)) + 1 ))
+	local ha=$(( (B[o+4] | (B[o+5] << 8)) + 1 ))
+	local hb=$(( (B[o+6] | (B[o+7] << 8)) + 1 ))
+	local va=$(( (B[o+12] | (B[o+13] << 8)) + 1 ))
+	local vb=$(( (B[o+14] | (B[o+15] << 8)) + 1 ))
+	add_mode "$ha" "$va" $(( pclk * unit )) $(( ha + hb )) $(( va + vb ))
+}
+
+parse() {
+	local f
+	f=$(edid_file) || return 1
+	mapfile -t B < <(od -An -v -tu1 "$f" | tr -s ' ' '\n' | grep -v '^$')
+	[ "${#B[@]}" -ge 128 ] || return 1
+	local o
+	for o in 54 72 90 108; do dtd "$o"; done
+	local blocks=$(( ${#B[@]} / 128 )) k base
+	for (( k = 1; k < blocks; k++ )); do
+		base=$(( k * 128 ))
+		case "${B[base]}" in
+			2) # CTA-861: detailed timings after the data blocks
+				local d=${B[base+2]}
+				[ "$d" -ge 4 ] || continue
+				o=$(( base + d ))
+				while [ $(( o + 18 )) -le $(( base + 127 )) ]; do
+					[ $(( B[o] | B[o+1] )) -eq 0 ] && break
+					dtd "$o"; o=$(( o + 18 ))
+				done ;;
+			112) # DisplayID: walk its data blocks
+				local len=${B[base+2]} p=$(( base + 5 )) end
+				end=$(( base + 5 + len ))
+				[ "$end" -le $(( base + 127 )) ] || end=$(( base + 127 ))
+				while [ $(( p + 3 )) -le "$end" ]; do
+					local tag=${B[p]} blen=${B[p+2]} q
+					[ "$tag" -eq 0 ] && [ "$blen" -eq 0 ] && break
+					if [ "$tag" -eq 3 ] || [ "$tag" -eq 34 ]; then   # type I (10 kHz) / type VII (1 kHz)
+						local unit=10000; [ "$tag" -eq 34 ] && unit=1000
+						for (( q = p + 3; q + 20 <= p + 3 + blen; q += 20 )); do
+							displayid_timing "$q" "$unit"
+						done
+					fi
+					p=$(( p + 3 + blen ))
+				done ;;
+		esac
+	done
+	[ -n "$MODES" ]
+}
+
+native() {
+	# Native resolution = the screen's preferred (first) timing; its refresh = the highest
+	# rate the screen reports at that size.
+	local w h _
+	read -r w h _ <<<"$(echo "$MODES" | head -n1)"
+	echo "$MODES" | awk -v w="$w" -v h="$h" '$1 == w && $2 == h' | sort -k3,3nr | head -n1
+}
+
+case "${1:---native}" in
+	--modes)
+		parse && echo "$MODES" | grep -v '^$' | sort -u -k1,1nr -k2,2nr -k3,3nr ;;
+	--native|*)
+		if parse; then native; else
+			# No EDID: fall back to the kernel's preferred mode at 60 Hz.
+			for c in /sys/class/drm/card*-*; do
+				[ "$(cat "$c/status" 2>/dev/null)" = "connected" ] || continue
+				m=$(head -n1 "$c/modes" 2>/dev/null)
+				[ -n "$m" ] && { echo "${m%x*} ${m#*x} 60" | tr -d 'i'; exit 0; }
+			done
+			echo "1920 1080 60"
+		fi ;;
+esac
