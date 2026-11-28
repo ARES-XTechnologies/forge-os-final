@@ -1,0 +1,3 @@
+# FORGE OS: lets the signed-in console user create the virtual mouse/keyboard the controller
+# uses in apps like Heroic and Firefox (forge-pointer), the same access Steam Input needs.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput", MODE="0660", GROUP="input"

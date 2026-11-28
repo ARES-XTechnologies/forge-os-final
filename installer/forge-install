@@ -215,7 +215,7 @@ PKGS=(base linux linux-firmware "${UCODE[@]}" sudo efibootmgr
 	gamescope xorg-xwayland steam mangohud lib32-mangohud gamemode lib32-gamemode
 	power-profiles-daemon godot xorg-xprop udisks2 flatpak dialog
 	inter-font noto-fonts noto-fonts-cjk noto-fonts-emoji ttf-liberation
-	git nano less pciutils usbutils ntfs-3g exfatprogs dosfstools terminus-font drm-info
+	git nano less pciutils usbutils ntfs-3g exfatprogs dosfstools terminus-font drm-info firefox
 	scx-scheds zram-generator)
 
 # ------------------------------------------------------------------------- install

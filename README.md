@@ -56,6 +56,17 @@ drives, tuning, services) and every OS package (kernel, drivers, Steam, Mesa). P
 pinned to one dated Arch Linux snapshot that you tested, so every console gets exactly the same
 versions and nothing changes behind your back.
 
+**When the snapshot server is busy** (archive.archlinux.org is a single server and sometimes
+refuses downloads), FORGE does not stop or break:
+- **Installing:** it installs the current Arch packages from the fast mirrors instead and logs
+  it ("snapshot download failed: retrying from the fastest current mirrors"). The console is
+  moved to the tested snapshot by its next update or by **Repair system**.
+- **Updating:** the new FORGE app and its system parts are still installed; only the package
+  step waits. The update message says "Drivers update next time", and the next update (or
+  **Repair system**) brings the packages to the tested snapshot.
+- **Building the ISO:** the build always uses the tested snapshot. If it's unreachable the build
+  stops with a clear message (try again later) instead of quietly using different packages.
+
 1. Change what you want and upload it to your GitHub repository.
 2. Raise the version in `shell/scripts/core/tokens.gd` (`OS_VERSION`), for example `1.4.1`.
 3. Optional, for newer drivers/Steam/kernel: set `system/os-snapshot` to a newer date

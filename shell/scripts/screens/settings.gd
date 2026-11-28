@@ -163,6 +163,9 @@ func _build_rows(id: String) -> Array:
 						Config.set_v("steam.api_key", t.strip_edges())
 						_rows.refresh_all()), "steam", "Shows games you own but haven't installed, and achievements", func(): return "Added" if SteamWeb.has_key() else "Not set"),
 				SettingRow.toggle("Show games you haven't installed", "library.show_uninstalled", "update"),
+				SettingRow.header("Home and apps"),
+				SettingRow.choice("Home layout", "library.home_layout", [["unified", "Unified"], ["separate", "Separate rows"]], "grid", "Unified: games and apps in one row. Separate rows: press down for Apps"),
+				SettingRow.toggle("Show apps", "library.apps", "grid", "Steam, Heroic, RetroArch and Firefox on Home and in Library"),
 				SettingRow.action("Refresh library", func():
 					SteamWeb.refresh_owned()
 					SteamLib.rescan()
@@ -249,7 +252,7 @@ func _build_rows(id: String) -> Array:
 				pal.append([k, k.capitalize()])
 			return [
 				SettingRow.header("Wallpaper"),
-				SettingRow.choice("Wallpaper", "appearance.wallpaper", [["ribbons", "Silk Ribbons"], ["nebula", "Nebula"], ["silk", "Satin"], ["caustics", "Caustics"], ["northern", "Northern Lights"], ["orbs", "Orbs"], ["photo", "Your photo"]], "image", "Every wallpaper uses the colours below"),
+				SettingRow.choice("Wallpaper", "appearance.wallpaper", [["ribbons", "Silk Ribbons"], ["nebula", "Nebula"], ["silk", "Satin"], ["caustics", "Caustics"], ["northern", "Northern Lights"], ["orbs", "Orbs"], ["golden", "Golden Dust"], ["shallows", "Sunlit Shallows"], ["coral", "Coral Light"], ["deep", "The Deep"], ["night_rain", "Night Rain"], ["chrome", "Liquid Chrome"], ["gold", "Liquid Gold"], ["prism", "Prism"], ["starfall", "Starfall"], ["rose", "Rose Horizon"], ["canopy", "Night Canopy"], ["deepfield", "Deep Field"], ["afterglow", "Afterglow"], ["mirror", "Mirror Lake"], ["violet", "Violet Peaks"], ["photo", "Your photo"]], "image", "Animated scenes. Colours below tint the abstract ones"),
 				SettingRow.action("Use your own photo", func(): shell.open_photo_picker(), "plus", "JPG or PNG from any drive or USB stick"),
 				SettingRow.slider("Soften photo", "appearance.wallpaper_soften", 0.0, 1.0, 0.1, pct, "image", "Blurs your photo so the glass stands out"),
 				SettingRow.choice("Colours", "appearance.palette", pal, "palette"),
@@ -258,6 +261,9 @@ func _build_rows(id: String) -> Array:
 				SettingRow.slider("Brightness", "appearance.wallpaper_intensity", 0.4, 1.6, 0.1, pct, "sparkle"),
 				SettingRow.toggle("Parallax", "appearance.parallax", "image", "The sky shifts gently as you move between games"),
 				SettingRow.toggle("Match colours to the game", "appearance.dynamic", "palette", "The sky takes on the colours of the game you're on"),
+				SettingRow.choice("Game art", "appearance.game_art", [["full", "Full screen"], ["blend", "Blend"]], "image", "Full screen: the game's art covers the screen. Blend: it melts into your wallpaper"),
+				SettingRow.toggle("Card frames", "library.card_frames", "image", "A liquid-glass frame around each game. Off: artwork only"),
+				SettingRow.toggle("Button hints", "appearance.hints", "info", "The button guide along the bottom of the screen"),
 				SettingRow.header("Glass"),
 				SettingRow.choice("Glass style", "appearance.glass_style", [["liquid", "Liquid glass"], ["mist", "Liquid mist"], ["frosted", "Frosted glass"], ["matte", "Matte"]], "sparkle", "Liquid: clear like water. Mist: clear with a soft veil. Frosted: soft and milky. Matte: calm"),
 				SettingRow.slider("Refraction", "appearance.glass_refraction", 0.0, 2.0, 0.1, pct, "sparkle"),

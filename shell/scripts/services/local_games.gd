@@ -99,6 +99,10 @@ func update(id: int, key: String, value) -> void:
 	if g.is_empty():
 		return
 	g[key] = value
+	if key in ["art", "steam_appid"]:
+		# New artwork: register its sources and drop the old pictures right away.
+		Art.register(id, _art_for(g))
+		Art.forget(id)
 	_save()
 
 func remove(id: int) -> void:
@@ -130,7 +134,8 @@ func scan() -> Array:
 			"kind": g.kind, "path": path, "installdir": path.get_base_dir(), "library": path.get_base_dir(),
 			"size": 0, "installed": present, "missing": not present, "updating": false, "progress": 0.0, "bytes_total": 0,
 			"last_updated": int(g.get("added", 0)), "last_played": 0, "playtime": 0, "flags": 4 if present else 0,
-			"steam_appid": int(g.get("steam_appid", 0))})
+			"steam_appid": int(g.get("steam_appid", 0)),
+			"is_app": str(g.get("type", "game")) == "app", "pointer": str(g.get("type", "game")) == "app"})
 	return out
 
 # ------------------------------------------------------------------ launching

@@ -12,6 +12,7 @@ var _choice := -1                    # index into _matches, -1 = icon / none
 var _icon := ""
 var _proton := ""
 var _args := ""
+var _type := "game"                  # game | app (apps: controller works as a mouse; own row if Home is set to separate rows)
 var _card: GlassPanel
 var _list: RowList
 var _preview: TextureRect
@@ -28,6 +29,7 @@ func build() -> void:
 		_name = str(g.get("name", ""))
 		_proton = str(g.get("proton", ""))
 		_args = str(g.get("args", ""))
+		_type = str(g.get("type", "game"))
 	else:
 		_name = LocalGames.suggest_name(path)
 	_card = GlassPanel.new()
@@ -140,6 +142,10 @@ func _rebuild() -> void:
 				_name = t.strip_edges()
 				_refresh_preview()
 				_search(_name)), "keyboard", "", func(): return _name))
+	var ty := SettingRow.choice("Type", "", [["game", "Game"], ["app", "App"]], "grid", "App: the controller works as a mouse, for programs made for a mouse")
+	ty.getter = func(): return _type
+	ty.setter = func(v): _type = v
+	rows.append(ty)
 	var windows := LocalGames.kind_for(path) == "windows"
 	rows.append(SettingRow.info("Runs with", func(): return "Proton (Windows game)" if windows else "Linux (native)", "wrench"))
 	if windows:
@@ -197,6 +203,7 @@ func _commit() -> void:
 		g = LocalGames.add(path, _name, sid, art)
 	LocalGames.update(int(g.id), "proton", _proton)
 	LocalGames.update(int(g.id), "args", _args)
+	LocalGames.update(int(g.id), "type", _type)
 	Shellbus.notify({"title": ("Saved " if edit_id != 0 else "Added ") + _name, "body": "Find it in your Library", "icon": "check", "color": Tokens.OK, "appid": int(g.id)})
 	SteamLib.rescan()
 	close()

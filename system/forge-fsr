@@ -29,7 +29,7 @@ case "$MODE" in
 	balanced) PM=588 ;;
 	performance) PM=500 ;;
 	ultra) PM=333 ;;
-	*) exec "$@" ;;
+	*) echo "[$(date '+%F %T')] [forge-fsr] off (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log" 2>/dev/null; exec "$@" ;;
 esac
 command -v gamescope >/dev/null || exec "$@"
 
@@ -49,5 +49,15 @@ RH=$(( HEIGHT * PM / 1000 / 2 * 2 ))
 ARGS=(-w "$RW" -h "$RH" -W "$WIDTH" -H "$HEIGHT" -r "$REFRESH" -F fsr -f)
 # Inside the console's own gamescope, the game's gamescope draws through X (most reliable).
 gamescope --help 2>&1 | grep -q -- '--backend' && ARGS+=(--backend sdl)
-echo "[forge-fsr] $MODE: ${RW}x${RH} -> ${WIDTH}x${HEIGHT} (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log" 2>/dev/null
+# The game must present into THIS (inner) gamescope, which renders it small and upscales it.
+# It inherits the console's (outer) gamescope settings, though: with those, gamescope's Vulkan
+# layer sent the game's frames straight to the outer gamescope at full size, skipping FSR
+# entirely (no FPS gain, no lower resolution), and on some games failed with
+# "Gamescope WSI Layer Error: Creating swapchain for non-Gamescope swapchain".
+# So the outer gamescope's address is cleared and its layer is off for the inner one: the
+# game draws into the inner gamescope's own display, where FSR applies.
+unset GAMESCOPE_WAYLAND_DISPLAY
+export ENABLE_GAMESCOPE_WSI=0
+mkdir -p "$HOME/.local/share/forge/logs"
+echo "[$(date '+%F %T')] [forge-fsr] $MODE: ${RW}x${RH} -> ${WIDTH}x${HEIGHT} (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log"
 exec gamescope "${ARGS[@]}" -- "$@"

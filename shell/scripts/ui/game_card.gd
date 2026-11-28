@@ -46,7 +46,11 @@ func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _ready() -> void:
-	Config.changed.connect(func(k): if k == "library.badges": refresh_badges())
+	Config.changed.connect(func(k):
+		if k == "library.badges":
+			refresh_badges()
+		elif k == "library.card_frames":
+			_layout())
 	s_scale = Spring.preset(1.0, &"bouncy")
 	s_lift = Spring.preset(0.0, &"bouncy")
 	s_focus = Spring.preset(0.0, &"snappy")
@@ -94,6 +98,15 @@ func _ready() -> void:
 		_extra = _build_all_games()
 		_body.add_child(_extra)
 		_art.visible = false
+	elif game.get("source", "") == "app":
+		# Built-in app (Steam, Heroic, RetroArch, Firefox): its own icon on a soft colour tile.
+		var t: Array = AppsLib.tint(int(game.get("appid", 0)))
+		_art_mat.set_shader_parameter("fallback_a", t[0])
+		_art_mat.set_shader_parameter("fallback_b", t[1])
+		_art_mat.set_shader_parameter("has_art", false)
+		_extra = _build_app()
+		_body.add_child(_extra)
+		_name.visible = false
 	else:
 		Art.art_ready.connect(_on_art)
 		_refresh_art()
@@ -117,14 +130,60 @@ func _build_all_games() -> Control:
 	c.add_child(n)
 	return c
 
+func _build_app() -> Control:
+	var c := Control.new()
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tr := TextureRect.new()
+	tr.name = "icon"
+	tr.texture = AppsLib.icon_tex(int(game.get("appid", 0)))
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.add_child(tr)
+	var l := Tokens.label(str(game.get("name", "")), 24, 600)
+	l.name = "label"
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	c.add_child(l)
+	if tr.texture == null:
+		# no icon file found: a large initial instead
+		var ini := Tokens.label(str(game.get("name", "?")).substr(0, 1), 96, 700)
+		ini.name = "initial"
+		ini.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ini.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		c.add_child(ini)
+	return c
+
 func _layout() -> void:
 	_body.size = size
 	_body.pivot_offset = Vector2(size.x * 0.5, size.y * 0.62)
 	_glass.size = size
-	_art.position = Vector2(INSET, INSET)
-	_art.size = size - Vector2(INSET, INSET) * 2.0
+	# Card frames off (Settings): artwork only, filling the whole card, no glass frame.
+	var framed := Config.get_b("library.card_frames") or kind == "all_games"
+	_glass.visible = framed
+	var inset := INSET if framed else 0.0
+	_art.position = Vector2(inset, inset)
+	_art.size = size - Vector2(inset, inset) * 2.0
 	_art_mat.set_shader_parameter("size", _art.size)
-	_art_mat.set_shader_parameter("radius", 26.0 - INSET + 1.0)
+	_art_mat.set_shader_parameter("radius", (26.0 - inset + 1.0) if framed else 22.0)
+	if _extra and game.get("source", "") == "app":
+		_extra.size = size
+		var isz := size.x * 0.52
+		var ic: Control = _extra.get_node("icon")
+		ic.size = Vector2(isz, isz)
+		ic.position = Vector2((size.x - isz) * 0.5, size.y * 0.5 - isz * 0.72)
+		var lb: Label = _extra.get_node("label")
+		lb.size = Vector2(size.x - 24, 32)
+		lb.position = Vector2(12, size.y * 0.5 + isz * 0.42)
+		if _extra.has_node("initial"):
+			var ini: Label = _extra.get_node("initial")
+			ini.size = Vector2(size.x, isz)
+			ini.position = Vector2(0, ic.position.y)
+		_badge.position = Vector2(size.x - 40, 18)
+		_progress.position = Vector2(20, size.y - 34)
+		_progress.size = Vector2(size.x - 40, 12)
+		return
 	_name.position = Vector2(18, 0)
 	_name.size = Vector2(size.x - 36, size.y)
 	_badge.position = Vector2(size.x - 40, 18)
@@ -140,6 +199,8 @@ func _layout() -> void:
 			l.position = Vector2(0, size.y * 0.5 + (4 if n == "label" else 40))
 
 func _refresh_art() -> void:
+	if game.get("source", "") == "app":
+		return
 	var appid: int = game.get("appid", 0)
 	var tex := Art.get_tex(appid, "portrait")
 	if tex:
@@ -167,6 +228,14 @@ func _on_art(appid: int, k: String) -> void:
 		if _has_art and not had:
 			# Art arriving gets a tiny pop so it feels alive rather than a flash.
 			s_scale.kick(0.6)
+
+## Name or artwork changed (renamed / new art picked): show it now.
+func refresh() -> void:
+	_name.text = game.get("name", "")
+	if game.get("source", "") == "app":
+		return
+	_refresh_art()
+	refresh_badges()
 
 func refresh_badges() -> void:
 	if kind != "game":

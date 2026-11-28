@@ -32,6 +32,8 @@ LocalGames="*res://scripts/services/local_games.gd"
 Downloads="*res://scripts/services/downloads.gd"
 Updater="*res://scripts/services/updater.gd"
 Metrics="*res://scripts/services/metrics.gd"
+AppsLib="*res://scripts/services/apps_lib.gd"
+Pointer="*res://scripts/services/pointer.gd"
 
 [display]
 

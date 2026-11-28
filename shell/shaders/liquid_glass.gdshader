@@ -116,7 +116,9 @@ void fragment() {
 		gorb = orbit(ang);
 	}
 	// Base level everywhere on the edge + travelling highlights + focus lift.
-	float glevel = gl * (0.32 + 0.95 * gorb) * (0.75 + 0.9 * focus);
+	// Glass on glass (a focused row, a button) gets a softer glow than the panel it sits on,
+	// and focus lifts it only a little: a bright row glowing over a bright panel washed out.
+	float glevel = gl * (0.32 + 0.95 * gorb) * (0.75 + 0.35 * focus) * (layered ? 0.45 : 1.0);
 
 	// Per-style recipe.
 	float blur = 0.0;        // mip level: how soft the scene behind looks
@@ -141,7 +143,7 @@ void fragment() {
 		float sd = sd_round_box(p - vec2(0.0, 10.0 + 6.0 * focus), half_panel, r);
 		float sh = exp(-max(sd, 0.0) / (16.0 + 10.0 * focus)) * shadow * 0.30;
 		float halo = exp(-dd / 10.0) * focus * 0.50 + exp(-dd / 30.0) * focus * 0.16;
-		float bloom = (exp(-dd / 3.5) * 0.55 + exp(-dd / 14.0) * 0.22) * glevel;
+		float bloom = (exp(-dd / 3.5) * 0.55 + exp(-dd / 14.0) * 0.22) * glevel * (layered ? 0.35 : 1.0);
 		float edge_fade = 1.0 - smoothstep(margin * 0.55, margin * 0.98, dd + 10.0);
 		sh *= edge_fade;
 		halo *= edge_fade;
@@ -205,10 +207,13 @@ void fragment() {
 	col += vec3(1.0) * smoothstep(0.6, 1.0, UV.y) * pow(1.0 - h, 5.0) * 0.07 * spec;
 
 	// Contour glow: crisp line on the rim + soft light spilling inward.
+	vec3 gadd = vec3(0.0);
 	if (gl > 0.0) {
 		float gline = smoothstep(-3.2 * aw, -0.9 * aw, d) * cover;
-		float spill = exp(d / 9.0) * 0.35 + exp(d / 26.0) * 0.10;
-		col += gcol * (gline * 1.25 + spill) * glevel;
+		// light just inside the line: short, so it never floods a wide row or its text
+		float spill = (exp(d / 6.0) * 0.22 + exp(d / 18.0) * 0.04) * (layered ? 0.3 : 1.0);
+		gadd = gcol * (gline * 1.25 + spill) * glevel;
+		col += gadd;
 	}
 
 	// Focus: coloured rim + slightly brighter body.
@@ -228,7 +233,8 @@ void fragment() {
 		float body = (0.08 + veil * 1.2 + tint_amount * 0.5 * (1.0 - clear) + solid * 0.5 + focus * 0.12) * (0.8 + 0.4 * gb);
 		vec3 lc = col + vec3(0.55, 0.6, 0.7) * 0.25 * (1.0 - clear * 0.8);
 		if (clear > 0.5) body *= 0.55;
-		float la = clamp(body + length(col) * 0.55, 0.0, 1.0);
+		// glow light adds colour, but only a little opacity (it was turning rows milky white)
+		float la = clamp(body + length(col - gadd) * 0.55 + length(gadd) * 0.3, 0.0, 1.0);
 		if (smoke > 0.0) {
 			// Over a game: deep smoked glass so text stays readable on any scene.
 			lc = mix(lc, vec3(0.04, 0.045, 0.085) + col * 0.9, smoke * 0.7);

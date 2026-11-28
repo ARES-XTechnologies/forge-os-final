@@ -73,25 +73,118 @@ func _ready() -> void:
 	_row_x = Spring.make(0.0, 260.0, 25.0)
 
 	SteamLib.library_changed.connect(_rebuild)
+	Config.changed.connect(func(k):
+		if k == "library.home_layout":
+			_shelf = 0
+			_rebuild()
+			_update_caption()
+		elif k == "appearance.game_art":
+			_layout()
+			var fg := _focused_game()
+			if not fg.is_empty():
+				_show_hero(int(fg.appid), true))
 	Art.art_ready.connect(_on_art)
 	resized.connect(_layout)
 	_rebuild()
 	_layout()
 
+func _full_art() -> bool:
+	return Config.get_s("appearance.game_art") != "blend"
+
 func _layout() -> void:
 	_hero.position = Vector2.ZERO
-	_hero.size = Vector2(size.x, 800)
+	# Full screen art covers everything; Blend keeps it to the top part, melting into the sky.
+	var full := _full_art()
+	_hero.size = size if full else Vector2(size.x, 800)
 	_hero_mat.set_shader_parameter("view", _hero.size)
+	_hero_mat.set_shader_parameter("full", full)
+	# Over full-screen art the text gets a soft shadow (not a dark band) so it stays readable.
+	for l in [_title, _meta]:
+		if l:
+			l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55 if full else 0.0))
+			l.add_theme_constant_override("shadow_outline_size", 14 if full else 0)
+			l.add_theme_constant_override("shadow_offset_x", 0)
+			l.add_theme_constant_override("shadow_offset_y", 2)
 	_info.position = Vector2(Tokens.SAFE_X, 0)
 	_info.size = Vector2(minf(820.0, size.x * 0.45), 560)
 	_logo.size = Vector2(minf(640.0, size.x * 0.36), 230)
 	_title.size = Vector2(_info.size.x, 230)
-	_caption.position = Vector2(Tokens.SAFE_X + 4, ROW_Y - 46)
+	_caption.position = Vector2(Tokens.SAFE_X + 4, ROW_Y - 74)
 	if _empty:
 		_empty.position = (size - _empty.size) * 0.5 + Vector2(0, 80)
 
 # ------------------------------------------------------------------ building
+var _sig_ids := ""
+var _sig_full := ""
+var _shelf := 0          # Separate rows layout: 0 = Continue playing (games), 1 = Apps
+
+func _separate() -> bool:
+	return Config.get_s("library.home_layout") == "separate" and not SteamLib.apps().is_empty()
+
+## What the row shows. Unified (default): your 14 most recent games plus your apps, all in one
+## row ordered by what you used last (apps never drop off). Separate rows: games, or apps.
+func _row_list() -> Array:
+	var games := SteamLib.recent(14)
+	var apps := SteamLib.apps()
+	if _separate():
+		return apps if _shelf == 1 else games
+	_shelf = 0
+	var all := games + apps
+	var order := {}
+	for i in all.size():
+		order[all[i].appid] = i
+	all.sort_custom(func(a, b):
+		if int(a.get("last_played", 0)) != int(b.get("last_played", 0)):
+			return int(a.get("last_played", 0)) > int(b.get("last_played", 0))
+		return order[a.appid] < order[b.appid])
+	return all
+
+func _wants_all_tile(list: Array) -> bool:
+	return not list.is_empty() and _shelf == 0
+
+func _update_caption() -> void:
+	if not _separate():
+		_caption.visible = false
+		return
+	_caption.visible = true
+	_caption.text = "APPS    ·    ▲ Continue playing" if _shelf == 1 else "CONTINUE PLAYING    ·    ▼ Apps"
+
+func _switch_shelf(to: int) -> void:
+	if to == _shelf:
+		return
+	_shelf = to
+	Sfx.play("open" if to == 1 else "close")
+	_rebuild()
+	_update_caption()
+
 func _rebuild() -> void:
+	# The library is re-read whenever anything changes. If the same games are on the row,
+	# update them in place: no rebuilding, no replayed animation.
+	var list := _row_list()
+	var ids := PackedStringArray()
+	var full := PackedStringArray()
+	for g in list:
+		ids.append(str(g.get("appid", "")))
+		full.append("%s:%s" % [g.get("appid", ""), g.get("name", "")])
+	var sig_ids := str(_shelf) + "#" + "|".join(ids)
+	var sig_full := str(_shelf) + "#" + "|".join(full)
+	if _built_once and sig_full == _sig_full:
+		for i in mini(list.size(), _cards.size()):
+			if _cards[i].kind == "game":
+				_cards[i].game = list[i]
+		return
+	var animate := not (_built_once and sig_ids == _sig_ids)
+	_sig_ids = sig_ids
+	_sig_full = sig_full
+	if not animate and _cards.size() == list.size() + (1 if _wants_all_tile(list) else 0):
+		# Same games, new names (a rename): refresh names and art without rebuilding.
+		for i in list.size():
+			_cards[i].game = list[i]
+			if _cards[i].has_method("refresh"):
+				_cards[i].refresh()
+		_info_appid = -1
+		_update_focus(true)
+		return
 	var keep_id := -1
 	if focus < _cards.size():
 		keep_id = _cards[focus].game.get("appid", -1)
@@ -99,10 +192,10 @@ func _rebuild() -> void:
 		c.queue_free()
 	_cards.clear()
 	_gaps.clear()
-	var games := SteamLib.recent(14)
+	var games := list
 	for g in games:
 		_add_card(GameCard.make(g, CARD))
-	if not games.is_empty():
+	if _wants_all_tile(games):
 		var all := GameCard.make({"name": "All games"}, CARD)
 		all.kind = "all_games"
 		_add_card(all)
@@ -113,6 +206,7 @@ func _rebuild() -> void:
 	_row_x.snap(_target_x())
 	_update_focus(true)
 	_set_empty(games.is_empty())
+	_update_caption()
 	if active:
 		_cascade()
 		if shell:
@@ -138,9 +232,9 @@ func _set_empty(empty: bool) -> void:
 		t.size = Vector2(760, 40)
 		t.position = Vector2(0, 128)
 		_empty.add_child(t)
-		var msg := "Sign in to Steam when it asks, then install games from the Steam app on\nyour phone or another PC. They'll appear here on their own."
+		var msg := "Open the Steam app to sign in and install games,\nor add your own with Library › +. They'll appear here on their own."
 		if not SteamLib.has_steam():
-			msg = "Steam is starting up for the first time.\nThis can take a few minutes. Your games will appear here."
+			msg = "Open the Steam app to sign in (the first start takes a few minutes),\nor add your own games with Library › +."
 		var s := Tokens.label(msg, 20, 400, Tokens.INK_DIM)
 		s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		s.size = Vector2(760, 60)
@@ -221,12 +315,22 @@ func nav_action(a: StringName) -> bool:
 			else:
 				shell.launch(c.game, c)
 		&"alt":
-			if _cards[focus].kind == "game":
+			if _cards[focus].kind == "game" and _cards[focus].game.get("source", "") != "app":
 				Sfx.play("open")
 				_cards[focus].press()
 				shell.open_game(_cards[focus].game)
 		&"menu":
 			shell.open_search()
+		&"down":
+			if _separate() and _shelf == 0:
+				_switch_shelf(1)
+			else:
+				return false
+		&"up":
+			if _separate() and _shelf == 1:
+				_switch_shelf(0)
+			else:
+				return false
 		_:
 			return false
 	return true
@@ -271,10 +375,20 @@ func _show_hero(appid: int, refresh := false) -> void:
 	if not refresh:
 		_hero_slot = 1 - _hero_slot
 	var slot := "a" if _hero_slot == 0 else "b"
+	if tex == null and _full_art() and Art.is_missing(appid, "hero"):
+		tex = Art.get_tex(appid, "portrait")      # Full screen: a blurred fill from the cover
 	_hero_mat.set_shader_parameter("tex_" + slot, tex)
 	_hero_mat.set_shader_parameter("has_" + slot, tex != null)
 	if tex:
-		_hero_mat.set_shader_parameter("size_" + slot, Vector2(tex.get_size()))
+		var ts := Vector2(tex.get_size())
+		_hero_mat.set_shader_parameter("size_" + slot, ts)
+		# Smart fit for Full screen: by the picture's shape and resolution.
+		var fit := 0
+		if ts.x < 1000.0 or ts.y < 400.0:
+			fit = 2            # small picture: soft blurred fill
+		elif ts.x / ts.y > 2.2:
+			fit = 1            # wide banner: sharp at the top + reflection below
+		_hero_mat.set_shader_parameter("fit_" + slot, fit)
 	_hero_mix.target = float(_hero_slot)
 
 func _apply_info(g: Dictionary) -> void:
@@ -289,10 +403,13 @@ func _apply_info(g: Dictionary) -> void:
 	_logo.visible = logo != null
 	_title.visible = logo == null
 	_title.text = g.get("name", "")
+	_fit_title()
 	if g.is_empty():
 		_meta.text = ""
 	else:
-		var parts := [SteamLib.fmt_last_played(g.last_played), SteamLib.fmt_playtime(g.playtime)]
+		var parts := [SteamLib.fmt_last_played(g.last_played)]
+		if int(g.playtime) > 0:
+			parts.append(SteamLib.fmt_playtime(g.playtime))   # "Never played · Not played yet" said the same thing twice
 		if g.get("updating", false):
 			parts.append("Updating %d%%" % int(g.progress * 100.0))
 		elif not g.get("installed", true):
@@ -349,3 +466,42 @@ func tick(dt: float) -> void:
 		var c := _cards[focus]
 		var sx := (c.position.x + CARD.x * 0.5) / maxf(size.x, 1.0) * 2.0 - 1.0
 		shell.wallpaper.look_at_point(Vector2(sx, 0.4))
+
+
+## Game names: one line when they fit (shrinking a little, never below 64 px); longer names
+## go on two balanced lines ("Grand Theft Auto V –" / "Enhanced Edition"), so neither a tiny
+## title nor a lone short word like "2" on its own line.
+func _fit_title() -> void:
+	var w := _info.size.x
+	var f := Tokens.font(700)
+	var name: String = _title.text.replace("\n", " ")
+	_title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	var fs := 76
+	while fs > 64 and f.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > w:
+		fs -= 2
+	if f.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= w:
+		_title.text = name
+		_title.add_theme_font_size_override("font_size", fs)
+		return
+	# Two lines: break where the two halves are most even.
+	var words := name.split(" ", false)
+	fs = 76
+	var best := ""
+	while fs >= 48 and best == "":
+		var best_w := INF
+		for i in range(1, words.size()):
+			var a := " ".join(words.slice(0, i))
+			var b := " ".join(words.slice(i))
+			var wa := f.get_string_size(a, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var wb := f.get_string_size(b, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if maxf(wa, wb) <= w and maxf(wa, wb) < best_w:
+				best_w = maxf(wa, wb)
+				best = a + "\n" + b
+		if best == "":
+			fs -= 4
+	if best == "":
+		# a single enormous word: let it wrap anywhere
+		_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		best = name
+	_title.text = best
+	_title.add_theme_font_size_override("font_size", fs)

@@ -52,6 +52,17 @@ func is_missing(appid: int, kind: String) -> bool:
 func register(appid: int, sources: Dictionary) -> void:
 	_custom[appid] = sources
 
+## Drop everything loaded for a game (its art was changed) and tell the screens, so the new
+## art shows straight away instead of the old cached picture.
+func forget(appid: int) -> void:
+	for kind in KINDS:
+		var key := "%d:%s" % [appid, kind]
+		_tex.erase(key)
+		_state.erase(key)
+	colors.erase(appid)
+	for kind in KINDS:
+		art_ready.emit(appid, kind)
+
 func _resolve(appid: int, kind: String) -> void:
 	if _custom.has(appid):
 		var src: String = (_custom[appid] as Dictionary).get(kind, "")

@@ -17,7 +17,7 @@ const DEFAULTS := {
 	"display.vrr": false,
 	"display.ui_scale": 1.0,
 	# Appearance
-	"appearance.wallpaper": "ribbons",    # ribbons, nebula, silk, caustics, northern, orbs, photo
+	"appearance.wallpaper": "ribbons",    # see wallpaper.gd STYLES (21 animated + photo)
 	"appearance.wallpaper_photo": "",
 	"appearance.wallpaper_soften": 0.0,
 	"appearance.palette": "aurora",
@@ -29,7 +29,10 @@ const DEFAULTS := {
 	"appearance.glass_tint": 0.10,
 	"appearance.glass_dispersion": 1.0,
 	"appearance.glass_brightness": 1.0,
-	"appearance.glass_style": "liquid",   # liquid (clear, default), mist, frosted, matte
+	"appearance.glass_style": "liquid",
+	"appearance.hints": false,
+	"pointer.guide_shown": 0,              # times the controller-mouse guide has been shown (shown 3 times)
+	"appearance.game_art": "full",         # full: game art covers the screen (smart fit); blend: art melts into the wallpaper             # button guides at the bottom of the screen (off by default)   # liquid (clear, default), mist, frosted, matte
 	"appearance.glow": false,
 	"appearance.glow_color": "adaptive",
 	"appearance.glow_strength": 0.8,      # 1.0 = full (the original brightness)
@@ -78,6 +81,9 @@ const DEFAULTS := {
 	"library.heroic": true,
 	"library.retro": true,
 	"library.badges": true,
+	"library.apps": true,                  # Steam, Heroic, RetroArch, Firefox tiles on Home and in Library
+	"library.home_layout": "unified",      # unified: games and apps in one row; separate: Apps get their own row
+	"library.card_frames": true,           # liquid-glass frame around each game's artwork
 	"library.last_folder": "",
 	"library.external_stats": {},
 	"steam.api_key": "",

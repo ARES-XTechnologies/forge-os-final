@@ -20,14 +20,13 @@ export __GL_THREADED_OPTIMIZATIONS=1
 export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
 export STEAM_FORCE_DESKTOPUI_SCALING=1
 
-start_steam() {
+# Steam is NOT started with the console (it covered the intro and slowed start-up). FORGE
+# starts it quietly the first time you play a Steam game or open the Steam app. Here we only
+# write queued Steam settings (Proton versions, launch options, FSR, account switch) while
+# Steam is closed, so it picks them up when it does start.
+prepare_steam() {
 	if ! pgrep -x steam >/dev/null; then
-		# Write queued Steam settings (Proton versions, launch options, account switch)
-		# while Steam is closed, so Steam picks them up as it starts.
-		# Never let this block the console from starting (it used to hang on some exits).
 		timeout -k 3 20 godot --headless --path "$SHELL_DIR" -- --apply-pending >> "$LOG" 2>&1
-		echo "[forge] starting Steam in the background" >> "$LOG"
-		steam -silent -nofriendsui -nochatui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1 &
 	fi
 }
 
@@ -52,8 +51,8 @@ big_picture() {
 	steam_shutdown
 	pkill -x steam 2>/dev/null
 	sleep 1
+	prepare_steam
 	steam -gamepadui >> "$HOME/.local/share/forge/logs/steam.log" 2>&1
-	start_steam
 }
 
 # The UI's import cache (fonts, pictures, effects in .godot/) must be complete, or FORGE
@@ -81,7 +80,7 @@ if ! import_ok; then
 	fi
 fi
 
-start_steam
+prepare_steam
 
 crashes=0
 while true; do

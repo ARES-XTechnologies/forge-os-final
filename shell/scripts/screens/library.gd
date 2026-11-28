@@ -5,7 +5,7 @@ extends Screen
 
 const CARD := Vector2(196, 294)
 const GAP := Vector2(30, 40)
-const ALL_FILTERS := [["all", "All"], ["installed", "Installed"], ["uninstalled", "Not installed"], ["stores", "Epic & GOG"], ["classics", "Classics"], ["local", "Your games"], ["favorites", "Favourites"], ["played", "Played"], ["updating", "Updating"], ["hidden", "Hidden"]]
+const ALL_FILTERS := [["all", "All"], ["installed", "Installed"], ["uninstalled", "Not installed"], ["stores", "Epic & GOG"], ["classics", "Classics"], ["local", "Your games"], ["favorites", "Favourites"], ["games", "Games"], ["apps", "Apps"], ["played", "Played"], ["updating", "Updating"], ["hidden", "Hidden"]]
 var FILTERS: Array = []
 const SORTS := [["recent", "Recently played"], ["name", "A–Z"], ["playtime", "Most played"], ["size", "Largest"], ["installed_date", "Recently updated"]]
 
@@ -271,7 +271,7 @@ func nav_action(a: StringName) -> bool:
 				_cards[_focus].press()
 				shell.launch(_cards[_focus].game, _cards[_focus])
 		&"alt":
-			if not _in_chips and _focus < _cards.size():
+			if not _in_chips and _focus < _cards.size() and _cards[_focus].game.get("source", "") != "app":
 				_cards[_focus].press()
 				shell.open_game(_cards[_focus].game)
 		&"menu":

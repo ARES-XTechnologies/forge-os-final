@@ -9,7 +9,29 @@ WORK="${WORK:-/tmp/forge-iso-work}"
 PROFILE="${PROFILE:-/tmp/forge-iso-profile}"
 OUT="${OUT:-$ROOT/out}"
 
-pacman -Sy --noconfirm --needed archiso git
+# Build from the same tested package snapshot the OS installs (system/os-snapshot), so the
+# installer ISO contains the tested versions too and two builds of one release match.
+# A full upgrade (-Syyuu) is used, never a partial one (-Sy), as Arch requires.
+SNAP=$(grep -v '^#' "$ROOT/system/os-snapshot" 2>/dev/null | head -n1 | tr -d '[:space:]')
+if [ -n "$SNAP" ]; then
+	ok=0
+	for try in 1 2 3; do
+		if curl -fsI --max-time 30 "https://archive.archlinux.org/repos/$SNAP/core/os/x86_64/core.db" >/dev/null; then ok=1; break; fi
+		echo "snapshot $SNAP not reachable (try $try/3), waiting..."; sleep 20
+	done
+	if [ "$ok" = 1 ]; then
+		printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$SNAP" > /etc/pacman.d/mirrorlist
+		echo "Building from the tested package snapshot $SNAP"
+	elif [ "${FORGE_ALLOW_UNPINNED:-0}" = 1 ]; then
+		echo "WARNING: snapshot $SNAP unreachable; building from current packages (FORGE_ALLOW_UNPINNED=1)"
+	else
+		echo "ERROR: the tested package snapshot $SNAP can't be reached (archive.archlinux.org)."
+		echo "Run the build again later, or set FORGE_ALLOW_UNPINNED=1 to build from current packages."
+		exit 1
+	fi
+fi
+sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/' /etc/pacman.conf
+pacman -Syyuu --noconfirm --needed archiso git
 
 rm -rf "$PROFILE" "$WORK"
 cp -r /usr/share/archiso/configs/releng "$PROFILE"
@@ -26,7 +48,7 @@ sed -i 's/^iso_application=.*/iso_application="FORGE OS Installer"/' "$PROFILE/p
 # Make the installer executable inside the image
 sed -i 's|^file_permissions=(|file_permissions=(\n  ["/usr/local/bin/forge-install"]="0:0:755"|' "$PROFILE/profiledef.sh"
 # FORGE system scripts keep their run permission on the USB too (Windows git drops it).
-for s in forge-session forge-inner forge-game forge-recovery forge-run forge-helper forge-drives forge-tune forge-fsr forge-system-install forge-display; do
+for s in forge-session forge-inner forge-game forge-recovery forge-run forge-helper forge-drives forge-tune forge-fsr forge-system-install forge-display forge-pointer; do
 	sed -i "s|^file_permissions=(|file_permissions=(\\n  [\"/opt/forge/system/$s\"]=\"0:0:755\"|" "$PROFILE/profiledef.sh"
 done
 

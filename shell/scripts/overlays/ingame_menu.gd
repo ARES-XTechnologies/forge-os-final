@@ -95,6 +95,15 @@ func build() -> void:
 			close()
 			Sys.power("suspend"), "moon", "The game stays paused while the console sleeps"),
 	]
+	if bool(Session.current.get("pointer", false)):
+		# Apps made for a mouse: what each controller button does (Pointer service).
+		var help := [["Left stick", "Move the pointer"], ["A", "Click (hold to drag)"], ["Right stick", "Scroll"],
+			["Y", "Right-click"], ["X", "On-screen keyboard"], ["B", "Back"], ["Start", "Enter"], ["D-pad", "Arrow keys"]]
+		rows.push_front(SettingRow.header(""))
+		for i in range(help.size() - 1, -1, -1):
+			var h: Array = help[i]
+			rows.push_front(SettingRow.info(h[0], func(): return h[1], "controller"))
+		rows.push_front(SettingRow.header("Controller mouse"))
 	_list.set_rows(rows)
 	_list.set_active(false)
 	if Config.get_b("ingame.pause"):

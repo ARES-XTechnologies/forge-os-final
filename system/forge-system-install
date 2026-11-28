@@ -34,6 +34,7 @@ put 755 "$SRC/forge-helper" "$LIB/forge-helper"
 put 755 "$SRC/forge-drives" "$LIB/forge-drives"
 put 755 "$SRC/forge-tune" "$LIB/forge-tune"
 put 755 "$SRC/forge-display" "$LIB/forge-display"
+put 755 "$SRC/forge-pointer" "$LIB/forge-pointer"
 put 755 "$SRC/forge-system-install" "$LIB/forge-system-install"
 for s in forge-session forge-inner forge-game forge-recovery forge-run forge-fsr; do
 	chmod 755 "$SRC/$s" 2>/dev/null
@@ -41,6 +42,11 @@ for s in forge-session forge-inner forge-game forge-recovery forge-run forge-fsr
 done
 put 644 "$SRC/logind-forge.conf" /etc/systemd/logind.conf.d/forge.conf
 put 644 "$SRC/99-forge-wakeup.rules" /etc/udev/rules.d/99-forge-wakeup.rules
+put 644 "$SRC/70-forge-uinput.rules" /etc/udev/rules.d/70-forge-uinput.rules
+echo uinput > /etc/modules-load.d/forge-uinput.conf
+modprobe uinput 2>/dev/null || true
+udevadm control --reload 2>/dev/null; udevadm trigger --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
+id forge >/dev/null 2>&1 && usermod -aG input forge 2>/dev/null || true
 for u in forge-drives.service forge-tune.service forge-scx.service; do
 	put 644 "$SRC/$u" "/etc/systemd/system/$u"
 	mkdir -p /etc/systemd/system/multi-user.target.wants

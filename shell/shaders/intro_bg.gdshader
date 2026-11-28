@@ -42,6 +42,20 @@ void fragment() {
 	col += vec3(1.0, 0.86, 0.6) * exp(-r * r * (3.0 + 10.0 * (1.0 - flash))) * flash * 0.9;
 	// vignette
 	col *= smoothstep(1.3, 0.2, r);
+	// (after the vignette, so the light can come in from the corner)
+	// a soft ray of light falling from the top-left, with dust glinting inside it
+	vec2 src = vec2(-0.95, -0.85);
+	vec2 d = p - src;
+	float ang = atan(d.x, d.y);
+	float cone = exp(-pow((ang - 0.62) / 0.20, 2.0));
+	float beams = 0.6 + 0.4 * noise(vec2(ang * 22.0 + t * 0.12, t * 0.04));
+	float ray = cone * beams * exp(-length(d) * 0.75) * (0.6 + 0.4 * glow);
+	col += vec3(1.0, 0.84, 0.66) * ray * 0.42;
+	vec2 g = p * 34.0 + vec2(t * 0.25, -t * 0.08);
+	vec2 id = floor(g);
+	vec2 h = vec2(hash12(id), hash12(id + 7.3));
+	float mote = smoothstep(0.08, 0.0, length(fract(g) - h)) * step(0.7, hash12(id + 3.1));
+	col += vec3(1.0, 0.8, 0.55) * mote * ray * 3.0;
 	col += (hash12(UV * res + t * 60.0) - 0.5) * 0.01;
 	COLOR = vec4(col, fade);
 }

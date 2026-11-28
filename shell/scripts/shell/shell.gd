@@ -133,7 +133,7 @@ func _process(dt: float) -> void:
 	top_bar.modulate = Color(1.0 - dm * 0.6, 1.0 - dm * 0.6, 1.0 - dm * 0.6, under)
 	_screen_layer.visible = under > 0.01 and not ingame
 	widgets.self_modulate.a = under
-	hint_bar.visible = not ingame
+	hint_bar.visible = not ingame and Config.get_b("appearance.hints")
 	top_bar.position.y = _ui_y.step(dt) * 0.6
 	hint_bar.position.y = size.y - 76 - _ui_y.value * 0.3
 
@@ -332,7 +332,7 @@ func set_ingame(on: bool) -> void:
 	ingame = on
 	_screen_layer.visible = not on
 	top_bar.visible = not on
-	hint_bar.visible = not on
+	hint_bar.visible = not on and Config.get_b("appearance.hints")
 	widgets.visible = not on
 	perf_overlay.visible = not on
 	toasts.ingame = on

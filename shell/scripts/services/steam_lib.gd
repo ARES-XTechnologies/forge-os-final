@@ -27,7 +27,7 @@ func _ready() -> void:
 	root = find_root()
 	rescan()
 	Config.changed.connect(func(k):
-		if k in ["library.show_uninstalled", "library.heroic", "library.retro", "library.external_stats"]:
+		if k in ["library.show_uninstalled", "library.heroic", "library.retro", "library.external_stats", "library.apps"]:
 			rescan())
 	SteamWeb.owned_changed.connect(rescan)
 	LocalGames.changed.connect(rescan)
@@ -65,8 +65,13 @@ func _process(dt: float) -> void:
 			rescan()
 
 # ------------------------------------------------------------------ scanning
+var _rescan_again := false
+
 func rescan() -> void:
 	if scanning:
+		# A change came in while a scan was running: scan once more right after it, so the
+		# change (a rename, a new game) shows at once instead of being missed.
+		_rescan_again = true
 		return
 	scanning = true
 	scan_state.emit(true)
@@ -83,7 +88,9 @@ func _apply_scan(result: Dictionary) -> void:
 		WorkerThreadPool.wait_for_task_completion(_scan_task)  # collect the finished task
 		_scan_task = -1
 	scanning = false
-	_stamp = result.get("stamp", "")
+	# Same fingerprint as the 6-second check uses (it also covers Epic/GOG and retro folders);
+	# these used to differ, so the library was re-read and the Home row rebuilt every 6 s.
+	_stamp = _stamp_now()
 	games = result.get("games", [])
 	by_id.clear()
 	for g in games:
@@ -107,6 +114,8 @@ func _apply_scan(result: Dictionary) -> void:
 	if Config.get_b("library.retro"):
 		extra += RetroLib.scan()
 	extra += LocalGames.scan()
+	if Config.get_b("library.apps"):
+		extra += AppsLib.scan()
 	var stats: Dictionary = Config.get_v("library.external_stats")
 	for g3 in extra:
 		var st: Dictionary = stats.get(str(g3.appid), {})
@@ -116,6 +125,9 @@ func _apply_scan(result: Dictionary) -> void:
 		by_id[g3.appid] = g3
 	scan_state.emit(false)
 	library_changed.emit()
+	if _rescan_again:
+		_rescan_again = false
+		rescan.call_deferred()
 
 func _library_paths(r: String) -> PackedStringArray:
 	var out := PackedStringArray()
@@ -263,7 +275,7 @@ func launch(appid: int) -> void:
 	_steam_url("steam://rungameid/%d" % appid)
 
 func is_launching(appid: int) -> bool:
-	return _launching.has(appid) and Time.get_ticks_msec() - int(_launching[appid]) < 25000 and running_appid != appid
+	return _launching.has(appid) and Time.get_ticks_msec() - int(_launching[appid]) < 60000 and running_appid != appid
 
 func uninstall(appid: int) -> void:
 	_steam_url("steam://uninstall/%d" % appid)
@@ -277,11 +289,26 @@ func install(appid: int) -> void:
 func open_downloads() -> void:
 	_steam_url("steam://open/downloads")
 
+func steam_is_running() -> bool:
+	if OS.get_name() != "Linux":
+		return true
+	var out := []
+	OS.execute("pgrep", PackedStringArray(["-x", "steam"]), out)
+	return not out.is_empty() and str(out[0]).strip_edges() != ""
+
+## Steam isn't started with the console any more: the first Steam action starts it quietly
+## (no Steam window), after writing any queued Steam settings while it's still closed.
 func _steam_url(url: String) -> void:
 	if OS.get_name() != "Linux":
 		OS.shell_open(url)
 		return
-	var pid := OS.create_process("steam", [url])
+	var args := [url]
+	if not steam_is_running():
+		GameSettings.apply_pending()
+		args = ["-silent", "-nofriendsui", "-nochatui", url]
+		if url.begins_with("steam://rungameid"):
+			Shellbus.notify({"title": "Starting Steam", "body": "Your game opens in a moment.", "icon": "update", "color": Tokens.ACCENT})
+	var pid := OS.create_process("steam", PackedStringArray(args))
 	if pid <= 0:
 		push_warning("FORGE: could not reach Steam for " + url)
 
@@ -315,6 +342,8 @@ func _passes(g: Dictionary, filter: String) -> bool:
 		"classics": return g.get("source", "steam") == "retro" and not hidden.has(g.appid)
 		"local": return g.get("source", "steam") in ["local", "usb"] and not hidden.has(g.appid)
 		"favorites": return favs.has(g.appid)
+		"games": return not g.get("is_app", false) and not hidden.has(g.appid)
+		"apps": return g.get("is_app", false) and not hidden.has(g.appid)
 		"played": return g.last_played > 0 and not hidden.has(g.appid)
 		"unplayed": return g.last_played == 0 and not hidden.has(g.appid)
 		"updating": return g.updating
@@ -323,8 +352,14 @@ func _passes(g: Dictionary, filter: String) -> bool:
 
 func recent(limit := 12) -> Array:
 	# Home: games you've played (installed or not) first, then the rest of your installed games.
-	var list := sorted("recent").filter(func(g): return g.get("installed", true) or g.last_played > 0 or g.get("updating", false))
+	# Apps are not counted here: Home adds them on top of these (see apps()).
+	var list := sorted("recent").filter(func(g): return not g.get("is_app", false) and not (Config.get_v("library.hidden") as Array).has(g.appid) \
+		and (g.get("installed", true) or g.last_played > 0 or g.get("updating", false)))
 	return list.slice(0, limit)
+
+## Apps (built-in and the ones you added as App), most recently used first.
+func apps() -> Array:
+	return sorted("recent", "apps")
 
 func total_installed() -> int:
 	return games.filter(func(g): return g.get("installed", true)).size()
@@ -367,6 +402,8 @@ func play(g: Dictionary) -> void:
 			RetroLib.launch(g)
 		"local", "usb":
 			LocalGames.launch(g)
+		"app":
+			AppsLib.launch(g)
 		_:
 			launch(int(g.appid))
 
@@ -398,6 +435,7 @@ static func source_label(g: Dictionary) -> String:
 		"epic": return "Epic Games"
 		"gog": return "GOG"
 		"local": return "Local disk"
+		"app": return "App"
 		"usb": return "USB drive"
 		"retro": return str(g.get("system_name", "Classic"))
 	return ""
@@ -408,6 +446,7 @@ static func source_short(g: Dictionary) -> String:
 		"epic": return "EPIC"
 		"gog": return "GOG"
 		"local": return "LOCAL"
+		"app": return "APP"
 		"usb": return "USB"
 		"retro": return str(g.get("system", "")).to_upper()
 	return ""
