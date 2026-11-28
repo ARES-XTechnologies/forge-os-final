@@ -11,6 +11,9 @@ FIRST_FILE="$XDG_RUNTIME_DIR/forge-first-boot-done"
 SHELL_DIR="/opt/forge/shell"
 
 export FORGE_SESSION=1    # the console UI knows it's running as the real console session
+# The console's own X display: forge-fsr sets FSR on gamescope through it, also from games
+# that run on gamescope's second display.
+export FORGE_X_DISPLAY="$DISPLAY"
 
 # In-game performance overlay / benchmark logging for every game (controlled by Settings).
 export MANGOHUD=1
@@ -81,6 +84,8 @@ if ! import_ok; then
 fi
 
 prepare_steam
+# Start at native resolution with normal scaling (FSR is switched on per game).
+/usr/lib/forge/forge-fsr --reset >/dev/null 2>&1
 
 crashes=0
 while true; do

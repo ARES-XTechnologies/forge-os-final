@@ -29,8 +29,9 @@ func build() -> void:
 	_card.add_child(_title)
 	_crumb = Tokens.label("", 19, 500, Tokens.INK_DIM)
 	_crumb.position = Vector2(50, 92)
-	_crumb.size = Vector2(1140, 26)
 	_crumb.clip_text = true
+	_crumb.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(_crumb, Vector2(1140, 26))
 	_card.add_child(_crumb)
 	_list = RowList.new()
 	_list.position = Vector2(18, 136)

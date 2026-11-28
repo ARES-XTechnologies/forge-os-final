@@ -74,7 +74,7 @@ func _rebuild() -> void:
 		row.add_child(d)
 		var pct := Tokens.label("%d%%" % int(it.progress * 100.0), 22, 700, Tokens.ACCENT)
 		pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		pct.size = Vector2(120, 30)
+		Tokens.fit(pct, Vector2(120, 30))
 		pct.position = Vector2(876, 4)
 		row.add_child(pct)
 		var bar := Control.new()

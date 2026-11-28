@@ -389,12 +389,16 @@ func search(q: String) -> Array:
 func total_size() -> int:
 	var t := 0
 	for g in games:
-		if g.get("source", "steam") == "steam":
-			t += int(g.size)
+		if not g.get("is_app", false) and g.get("installed", true):
+			t += int(g.get("size", 0))
 	return t
 
 ## Starts a game from any source, or installs it if it isn't installed yet.
 func play(g: Dictionary) -> void:
+	# FSR: shrink the game's screen and turn on FSR upscaling in gamescope *before* the game
+	# starts, so it picks the smaller resolution. Apps (Steam, Firefox, Heroic...) stay native.
+	if not g.get("is_app", false) and str(g.get("source", "")) != "app":
+		Sys.fsr_apply(int(g.get("appid", 0)))
 	match str(g.get("source", "steam")):
 		"epic", "gog":
 			HeroicLib.launch(g)

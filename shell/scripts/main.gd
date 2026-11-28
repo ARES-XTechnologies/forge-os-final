@@ -181,6 +181,11 @@ func _dev_args() -> void:
 		"search": shell.open_search()
 		"dialog": shell.confirm("Power off?", "Steam will close first so your games can save.", [["Power off", "power"], ["Cancel", "close"]], func(_i): pass)
 		"toast": Shellbus.notify({"title": "Achievement unlocked", "body": "Into the Ashes  ·  4.2% of players", "icon": "star_filled", "color": Tokens.GOLD, "sound": "achievement"})
+		"toast2":
+			shell.toast("Settings saved", "check", Tokens.OK)
+			shell.toast("Couldn't open the drive: it uses a file system FORGE can't read yet", "info", Tokens.BAD)
+			Shellbus.notify({"title": "Updating FORGE OS", "body": "Keep the console on. It restarts by itself when done.", "icon": "update", "color": Tokens.ACCENT, "duration": 8.0})
+			Shellbus.notify({"title": "FORGE OS updated", "body": "Drivers update next time. Restarting the console UI…", "icon": "check", "color": Tokens.OK})
 		"setup": shell.open_setup()
 		"profiles": shell.open_profiles(true)
 		"downloads": shell.open_downloads()

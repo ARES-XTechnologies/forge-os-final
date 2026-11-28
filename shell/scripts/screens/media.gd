@@ -115,8 +115,9 @@ func _build() -> void:
 			tile.tint_boost = 0.1
 		var cap := Tokens.label(cap_text, 18, 600, Tokens.INK_DIM)
 		cap.position = Vector2(8, THUMB.y + 12)
-		cap.size = Vector2(THUMB.x - 16, 24)
 		cap.clip_text = true
+		cap.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		cap.size = Vector2(THUMB.x - 16, 24)
 		tile.add_child(cap)
 		tile.position = Vector2((i % _cols) * (THUMB.x + GAP.x), (i / _cols) * (THUMB.y + GAP.y))
 		tile.set_meta("s", Spring.preset(1.0, &"bouncy"))

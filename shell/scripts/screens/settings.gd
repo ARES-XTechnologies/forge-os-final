@@ -11,7 +11,7 @@ const CATS := [
 	["motion", "Motion & feel", "sparkle"],
 	["widgets", "Widgets", "widgets"],
 	["library", "Library & stores", "grid"],
-	["capture", "Capture & in-game", "image"],
+	["capture", "Capture & play", "image"],
 	["audio", "Audio", "volume"],
 	["network", "Network", "network"],
 	["bluetooth", "Bluetooth", "bluetooth"],
@@ -322,12 +322,16 @@ func _build_rows(id: String) -> Array:
 			var sinks := []
 			for s in _audio.sinks:
 				sinks.append([s.id, s.name])
+			if sinks.is_empty():
+				sinks.append([-1, "No speakers found"])
 			var out := SettingRow.choice("Output", "", sinks, "volume")
 			out.getter = func():
 				for s in _audio.sinks:
 					if s.default: return s.id
-				return -1
+				return -1 if _audio.sinks.is_empty() else _audio.sinks[0].id
 			out.setter = func(v):
+				if int(v) < 0:
+					return
 				Sys.set_default_sink(int(v))
 				for s in _audio.sinks: s.default = s.id == v
 			var vol := SettingRow.slider("Volume", "", 0.0, 1.0, 0.05, pct, "volume")
@@ -398,7 +402,7 @@ func _build_rows(id: String) -> Array:
 		"performance":
 			return [
 				SettingRow.header("Upscaling and speed"),
-				SettingRow.choice("FSR upscaling", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "Off is native. Fidelity 67% · Balanced 59% · Performance 50% · Ultra 33% · from the next game"),
+				SettingRow.choice("FSR upscaling", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "Fidelity 67% · Balanced 59% · Performance 50% · Ultra 33%"),
 				SettingRow.info("CPU and GPU", func(): return "Always at full speed", "cpu"),
 				SettingRow.choice("Frame rate limit", "perf.fps_limit", [[0, "Off"], [30, "30 FPS"], [40, "40 FPS"], [60, "60 FPS"], [90, "90 FPS"], [120, "120 FPS"], [144, "144 FPS"], [165, "165 FPS"], [240, "240 FPS"]], "timer"),
 				SettingRow.header("In-game overlay"),

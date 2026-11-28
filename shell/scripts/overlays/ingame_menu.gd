@@ -43,8 +43,9 @@ func build() -> void:
 	_sheet.add_child(_portrait)
 	var name := Tokens.label(str(g.get("name", "Game")), 30, 700)
 	name.position = Vector2(140, 44)
-	name.size = Vector2(460, 40)
 	name.clip_text = true
+	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(name, Vector2(460, 40))
 	_sheet.add_child(name)
 	_playing = Tokens.label("", 19, 500, Tokens.INK_DIM)
 	_playing.position = Vector2(142, 90)
@@ -77,7 +78,7 @@ func build() -> void:
 		_volume = v
 		Sys.set_volume(v)
 	var appid := int(g.get("appid", 0))
-	var fps := SettingRow.choice("FPS limit (this game)", "", [[-1, "Same as console"], [0, "Off"], [30, "30"], [40, "40"], [60, "60"], [90, "90"], [120, "120"], [144, "144"]], "timer", "Applies the next time it starts")
+	var fps := SettingRow.choice("FPS limit", "", [[-1, "Same as console"], [0, "Off"], [30, "30"], [40, "40"], [60, "60"], [90, "90"], [120, "120"], [144, "144"]], "timer", "This game · next start")
 	fps.getter = func():
 		var v = Config.game_get(appid, "fps", null)
 		return -1 if v == null else int(v)
@@ -87,13 +88,13 @@ func build() -> void:
 	var rows: Array = [
 		vol,
 		SettingRow.choice("FSR", "fsr.mode", GameSettings.FSR_CHOICES, "gauge", "From the next game start"),
-		SettingRow.choice("Overlay", "perf.overlay", [["off", "Off"], ["fps", "FPS only"], ["detailed", "Detailed"], ["full", "Everything"]], "chart", "Changes show after the game restarts"),
+		SettingRow.choice("Overlay", "perf.overlay", [["off", "Off"], ["fps", "FPS only"], ["detailed", "Detailed"], ["full", "Everything"]], "chart", "Shows after a restart"),
 		fps,
-		SettingRow.toggle("Pause game while this menu is open", "ingame.pause", "moon", "Turn off for online games"),
+		SettingRow.toggle("Pause in menu", "ingame.pause", "moon", "Off for online games"),
 		SettingRow.action("Downloads", func(): shell.open_downloads(), "update", "", func(): return "%d active" % Downloads.active_count() if Downloads.active_count() > 0 else "None"),
 		SettingRow.action("Rest mode", func():
 			close()
-			Sys.power("suspend"), "moon", "The game stays paused while the console sleeps"),
+			Sys.power("suspend"), "moon", "The game waits while it sleeps"),
 	]
 	if bool(Session.current.get("pointer", false)):
 		# Apps made for a mouse: what each controller button does (Pointer service).
@@ -121,7 +122,7 @@ func _tile(label: String, icon: String, col: Color) -> Control:
 	t.set_meta("color", col)
 	var l := Tokens.label(label, 16, 600, Tokens.INK_DIM)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.size = Vector2(128, 22)
+	Tokens.fit(l, Vector2(128, 22))
 	l.position = Vector2(0, 128)
 	t.add_child(l)
 	t.pressed.connect(_tile_pressed.bind(label))

@@ -190,7 +190,7 @@ func _fill_tiles(tiles: Array) -> void:
 		if t[3] != "":
 			var dl := Tokens.label(t[3], 14, 600, Tokens.OK if t[3].begins_with("+") else Tokens.BAD)
 			dl.position = Vector2(150, 10)
-			dl.size = Vector2(110, 18)
+			Tokens.fit(dl, Vector2(110, 18))
 			dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			card.add_child(dl)
 		_stats_box.add_child(card)

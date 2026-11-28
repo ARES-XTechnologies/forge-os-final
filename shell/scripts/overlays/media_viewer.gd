@@ -92,5 +92,5 @@ func animate(o: float, dt: float) -> void:
 	_b.position = Vector2((s - signf(s)) * c.size.x * 0.6, 0) if absf(s) > 0.001 else Vector2(99999, 0)
 	_a.modulate.a = 1.0 - absf(s) * 0.6
 	_b.modulate.a = absf(s)
-	_caption.size = Vector2(size.x, 30)
+	Tokens.fit(_caption, Vector2(size.x, 30))
 	_caption.position = Vector2(0, size.y - 100)

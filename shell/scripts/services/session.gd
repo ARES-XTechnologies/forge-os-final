@@ -81,6 +81,7 @@ func _finish() -> void:
 		stats[key] = st
 		Config.set_v("library.external_stats", stats)
 	_stop_replay_buffer()
+	Sys.fsr_reset()
 	current = {}
 	_ext_pid = 0
 	_ext_match = ""

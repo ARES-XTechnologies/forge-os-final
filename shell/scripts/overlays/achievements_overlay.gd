@@ -99,14 +99,16 @@ func _tile(a: Dictionary) -> GlassPanel:
 	var hidden: bool = a.hidden and not a.achieved
 	var n := Tokens.label("Hidden achievement" if hidden else str(a.name), 21, 700, Tokens.INK if a.achieved else Tokens.INK_DIM)
 	n.position = Vector2(128, 16)
-	n.size = Vector2(236, 28)
 	n.clip_text = true
+	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(n, Vector2(236, 28))
 	t.add_child(n)
 	var desc := Tokens.label("Keep playing to reveal it." if hidden else str(a.desc), 15, 500, Tokens.INK_FAINT)
 	desc.position = Vector2(128, 46)
-	desc.size = Vector2(236, 44)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.clip_text = true
+	desc.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(desc, Vector2(236, 44))
 	t.add_child(desc)
 	var meta := ""
 	if a.achieved and a.time > 0:
@@ -116,6 +118,9 @@ func _tile(a: Dictionary) -> GlassPanel:
 		meta += ("  ·  " if meta != "" else "") + ("%.1f%% of players" % a.percent)
 	var m := Tokens.label(meta, 14, 600, Tokens.GOLD if (a.percent >= 0.0 and a.percent < 5.0) else Tokens.INK_FAINT)
 	m.position = Vector2(128, 98)
+	m.clip_text = true
+	m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(m, Vector2(236, 22))
 	t.add_child(m)
 	return t
 

@@ -65,13 +65,39 @@ func scan() -> Array:
 			"progress": 0.0, "bytes_total": 0, "last_updated": 0, "last_played": 0, "playtime": 0, "flags": 4})
 	return out
 
-## The app's own icon from the system (PNG or SVG), cached.
+## Icon names each app installs under (native package, Flatpak).
+const ICON_NAMES := {
+	"steam": ["steam"],
+	"heroic": ["com.heroicgameslauncher.hgl", "heroic"],
+	"retroarch": ["com.libretro.RetroArch", "retroarch"],
+	"firefox": ["firefox", "org.mozilla.firefox"],
+}
+## Copies of the icons that ship with FORGE, used when the system has none.
+const BUNDLED := {"heroic": "res://assets/apps/heroic.png", "retroarch": "res://assets/apps/retroarch.png"}
+
+## Every place an icon can live, largest first.
+func _icon_candidates(a: Dictionary) -> Array:
+	var out: Array = []
+	out.append_array(a.get("icons", []))
+	var home := OS.get_environment("HOME")
+	var roots := ["/usr/share/icons/hicolor", "/var/lib/flatpak/exports/share/icons/hicolor",
+		home + "/.local/share/flatpak/exports/share/icons/hicolor", home + "/.local/share/icons/hicolor"]
+	for n in ICON_NAMES.get(str(a.app), []):
+		for r in roots:
+			for s in ["512x512", "256x256", "128x128"]:
+				out.append("%s/%s/apps/%s.png" % [r, s, n])
+			out.append("%s/scalable/apps/%s.svg" % [r, n])
+		out.append("/usr/share/pixmaps/%s.png" % n)
+		out.append("/usr/share/pixmaps/%s.svg" % n)
+	return out
+
+## The app's own icon from the system (PNG or SVG), or FORGE's bundled copy; cached.
 func icon_tex(appid: int) -> Texture2D:
 	if _icons.has(appid):
 		return _icons[appid]
 	var tex: Texture2D = null
 	var a := info(appid)
-	for p in a.get("icons", []):
+	for p in _icon_candidates(a):
 		if not FileAccess.file_exists(p):
 			continue
 		var img := Image.new()
@@ -84,6 +110,8 @@ func icon_tex(appid: int) -> Texture2D:
 			img.generate_mipmaps()
 			tex = ImageTexture.create_from_image(img)
 			break
+	if tex == null and BUNDLED.has(str(a.get("app", ""))) and ResourceLoader.exists(BUNDLED[a.app]):
+		tex = load(BUNDLED[a.app]) as Texture2D
 	_icons[appid] = tex
 	return tex
 

@@ -161,6 +161,8 @@ func _process(dt: float) -> void:
 		r.size.x = size.x
 		var y := r.position.y + sy
 		# fade rows near the clipped edges for a soft scroll mask
-		var a := clampf(minf((y + r.row_height) / 60.0, (size.y - y) / 60.0), 0.0, 1.0)
+		# (measured from the row's middle, so a row never pokes out past the panel's edge)
+		var mid := y + r.row_height * 0.5
+		var a := clampf(minf(mid / 50.0, (size.y - mid) / 50.0), 0.0, 1.0)
 		r.modulate.a = a
 		r.visible = a > 0.0

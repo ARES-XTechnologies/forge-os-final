@@ -113,9 +113,9 @@ func _process(dt: float) -> void:
 	_card.scale = Vector2.ONE * z * breathe * lerpf(0.9, 1.0, clampf(o, 0.0, 1.0))
 	_ring.position = _card.position + _card.size * 0.5
 	_ring.queue_redraw()
-	_title.size = Vector2(size.x, 44)
+	Tokens.fit(_title, Vector2(size.x, 44))
 	_title.position = Vector2(0, _card.position.y + _card.size.y + 46)
-	_status.size = Vector2(size.x, 30)
+	Tokens.fit(_status, Vector2(size.x, 30))
 	_status.position = Vector2(0, _title.position.y + 52)
 	if _t > 8.0 and _status.text == "Starting…":
 		_status.text = "Steam is getting it ready…"

@@ -34,8 +34,8 @@ func build() -> void:
 	_card.add_child(_title)
 	_sub = Tokens.label("", 22, 500, Tokens.INK_DIM)
 	_sub.position = Vector2(66, 128)
-	_sub.size = Vector2(970, 60)
 	_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	Tokens.fit(_sub, Vector2(970, 60))
 	_card.add_child(_sub)
 	_list = RowList.new()
 	_list.position = Vector2(36, 210)

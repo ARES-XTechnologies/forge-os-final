@@ -93,7 +93,7 @@ func build() -> void:
 	_field.size = Vector2(w, 66)
 	# The label clips its text, so it needs a real size; with none it showed nothing at all
 	# and typed names / passwords looked like they weren't being entered.
-	_field_text.size = Vector2(w - 56, 44)
+	Tokens.fit(_field_text, Vector2(w - 56, 44))
 	_panel.size = Vector2(w + 68, 170 + 5 * (KEY_H + GAP) + 30)
 	_update_text()
 	_move_lens(true)
@@ -133,7 +133,7 @@ func _build_keys() -> void:
 			l.name = "l"
 			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			l.size = node.size
+			Tokens.fit(l, node.size)
 			node.add_child(l)
 			_keys_root.add_child(node)
 			items.append({"key": k, "rect": Rect2(node.position, node.size), "node": node})

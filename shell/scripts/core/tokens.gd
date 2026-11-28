@@ -2,7 +2,7 @@ extends Node
 ## Design tokens: the single source of truth for colour, type, spacing and motion.
 
 const OS_NAME := "FORGE"
-const OS_VERSION := "1.4.4"
+const OS_VERSION := "1.4.5"
 const STUDIO := "Blacksmith Games"
 
 # ---------- Colour ----------
@@ -57,6 +57,13 @@ const SPRINGS := {
 # ---------- Type ----------
 var _fonts := {}
 
+func _ready() -> void:
+	# Load every weight of the UI font up front. During an update the files on disk are being
+	# swapped, and a font first asked for at that moment (like the bigger toast text) could not
+	# load: the message showed as an empty card. Loaded now, they stay in memory.
+	for w in [300, 400, 500, 600, 700]:
+		font(w)
+
 func font(weight: int = 400, italic := false) -> Font:
 	var key := "%d_%s" % [weight, italic]
 	if _fonts.has(key):
@@ -98,6 +105,16 @@ func label(text: String, size: int, weight := 400, color := INK) -> Label:
 	l.add_theme_color_override("font_color", color)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+## Give a label a fixed box. Godot can work out a label's size from its full text before it's
+## on screen and stretch it wider than asked (text then ran out of cards), so the size is
+## applied again once the label is actually on screen.
+func fit(l: Control, s: Vector2) -> void:
+	l.size = s
+	if l.is_inside_tree():
+		l.set_deferred("size", s)
+	else:
+		l.tree_entered.connect(func(): l.set_deferred("size", s), CONNECT_ONE_SHOT)
 
 func palette() -> Array:
 	return PALETTES.get(Config.get_s("appearance.palette"), PALETTES["aurora"])

@@ -44,7 +44,7 @@ func build() -> void:
 	_title = Tokens.label(game.get("name", ""), 84, 700)
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_title.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	_title.size = Vector2(1000, 260)
+	Tokens.fit(_title, Vector2(1000, 260))
 	content.add_child(_title)
 
 	var installed: bool = game.get("installed", true)
@@ -134,8 +134,9 @@ func build() -> void:
 		card.add_child(cap)
 		var val := Tokens.label(s[2], 26, 600)
 		val.position = Vector2(22, 56)
-		val.size = Vector2(210, 34)
 		val.clip_text = true
+		val.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		Tokens.fit(val, Vector2(210, 34))
 		card.add_child(val)
 		content.add_child(card)
 		_stats.append(card)

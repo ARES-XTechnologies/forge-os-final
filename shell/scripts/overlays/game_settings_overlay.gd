@@ -16,8 +16,9 @@ func build() -> void:
 	add_child(_card)
 	var t := Tokens.label(str(game.get("name", "Game")), 40, 700)
 	t.position = Vector2(48, 38)
-	t.size = Vector2(900, 50)
 	t.clip_text = true
+	t.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(t, Vector2(900, 50))
 	_card.add_child(t)
 	var s := Tokens.label("Game settings", 20, 500, Tokens.INK_DIM)
 	s.position = Vector2(50, 94)
@@ -26,8 +27,16 @@ func build() -> void:
 	_list.position = Vector2(18, 140)
 	_list.size = Vector2(964, 600)
 	_card.add_child(_list)
-	_list.set_rows(_rows())
+	var rows := _rows()
+	_list.set_rows(rows)
 	_list.set_active(true)
+	# Fit the card to its rows (a game with one or two settings shouldn't get a huge empty card).
+	var need := 0.0
+	for r in rows:
+		need += float(r.row_height)
+	need = minf(need + 8.0, 600.0)
+	_list.size.y = need
+	_card.size.y = 140.0 + need + 30.0
 	GameSettings.pending_changed.connect(func(): _list.refresh_all())
 
 func _rows() -> Array:

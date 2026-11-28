@@ -19,7 +19,7 @@ func build() -> void:
 	add_child(c)
 	_title = Tokens.label("Who's playing?", 60, 700)
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_title.size = Vector2(1600, 80)
+	Tokens.fit(_title, Vector2(1600, 80))
 	c.add_child(_title)
 	_row = Control.new()
 	_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -55,11 +55,11 @@ func _build_orbs() -> void:
 		var ini := Tokens.label(label_txt, 72, 300, Color(str(p.color)).lightened(0.4))
 		ini.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ini.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		ini.size = Vector2(200, 200)
+		Tokens.fit(ini, Vector2(200, 200))
 		node.add_child(ini)
 		var nm := Tokens.label(str(p.name), 26, 600)
 		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		nm.size = Vector2(260, 34)
+		Tokens.fit(nm, Vector2(260, 34))
 		nm.position = Vector2(-30, 226)
 		node.add_child(nm)
 		_row.add_child(node)

@@ -29,6 +29,26 @@ func _on_config(key: String) -> void:
 	if key == "fsr.mode" or key == "games.settings":
 		write_fsr_conf()
 
+## FSR in the console's gamescope, through forge-fsr (see system/forge-fsr).
+const FSR_TOOL := "/usr/lib/forge/forge-fsr"
+var _fsr_on := false
+
+func fsr_apply(appid: int) -> void:
+	if not FileAccess.file_exists(FSR_TOOL):
+		return
+	_fsr_on = true
+	run(FSR_TOOL, ["--apply", str(appid)])
+	# If the game never starts (cancelled, failed), go back to native after a while.
+	get_tree().create_timer(120.0).timeout.connect(func():
+		if _fsr_on and not Session.is_playing():
+			fsr_reset())
+
+func fsr_reset() -> void:
+	if not FileAccess.file_exists(FSR_TOOL) or not _fsr_on:
+		return
+	_fsr_on = false
+	run(FSR_TOOL, ["--reset"])
+
 ## FSR settings for forge-fsr, which every game starts through: the console-wide mode and
 ## each game's own choice. Read at launch, so changes apply from the next game start.
 func write_fsr_conf() -> void:
@@ -106,7 +126,19 @@ func read_text(path: String) -> String:
 	if not FileAccess.file_exists(path):
 		return ""
 	var f := FileAccess.open(path, FileAccess.READ)
-	return "" if f == null else f.get_as_text()
+	if f == null:
+		return ""
+	# Files in /proc report a size of 0, so get_as_text() returns nothing for them (that made
+	# the System widget show 0% CPU and RAM). Read in chunks until the file runs out instead.
+	var buf := PackedByteArray()
+	while true:
+		var chunk := f.get_buffer(65536)
+		if chunk.is_empty():
+			break
+		buf.append_array(chunk)
+		if buf.size() > 16777216:
+			break
+	return buf.get_string_from_utf8()
 
 # ------------------------------------------------------------------ network
 ## cb(list: Array[{ssid, signal, secure, active}])
@@ -519,13 +551,19 @@ func system_update(cb: Callable) -> void:
 	run("sudo", ["-n", "/usr/lib/forge/forge-helper", "update"], func(t, c): _reply(cb, [c == 0, t]))
 
 func storage(cb: Callable) -> void:
-	run("df", ["-B1", "--output=target,size,used,avail", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs", "-x", "overlay"], func(t: String, _c):
+	# The mount point goes last: drive names can contain spaces ("/run/media/forge/My Games").
+	run("df", ["-B1", "--output=size,used,avail,target", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs", "-x", "overlay"], func(t: String, _c):
 		var out := []
+		var re := RegEx.create_from_string("^\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(.+)$")
 		var lines := t.split("\n", false)
 		for i in range(1, lines.size()):
-			var p := lines[i].split(" ", false)
-			if p.size() >= 4 and (p[0] == "/" or p[0].begins_with("/home") or p[0].begins_with("/mnt") or p[0].begins_with("/run/media") or p[0].begins_with("/media")):
-				out.append({"mount": p[0], "size": int(p[1]), "used": int(p[2]), "free": int(p[3])})
+			var rm := re.search(lines[i])
+			if rm == null:
+				continue
+			var p := [rm.get_string(1), rm.get_string(2), rm.get_string(3)]
+			var m := rm.get_string(4).strip_edges()
+			if m == "/" or m.begins_with("/home") or m.begins_with("/mnt") or m.begins_with("/run/media") or m.begins_with("/media"):
+				out.append({"mount": m, "size": int(p[0]), "used": int(p[1]), "free": int(p[2])})
 		_reply(cb, [out]))
 
 func about() -> Dictionary:

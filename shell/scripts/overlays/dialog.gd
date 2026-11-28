@@ -25,7 +25,7 @@ func build() -> void:
 	var b := Tokens.label(body, 21, 400, Tokens.INK_DIM)
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.position = Vector2(48, 98)
-	b.size = Vector2(640, 60)
+	Tokens.fit(b, Vector2(640, 60))
 	c.add_child(b)
 	var btns := []
 	var x := 48.0

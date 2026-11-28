@@ -24,6 +24,8 @@ func _ready() -> void:
 		if j is Array:
 			games = j
 	_register_all()
+	# Measure how much space each game takes (in the background, a little after start-up).
+	get_tree().create_timer(8.0).timeout.connect(measure_sizes)
 
 func _save() -> void:
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -31,6 +33,36 @@ func _save() -> void:
 		f.store_string(JSON.stringify(games, "\t"))
 	_register_all()
 	changed.emit()
+
+## The game's own folder: the part before "Binaries" for Unreal games, otherwise the
+## folder the program is in.
+static func game_root(path: String) -> String:
+	var low := path.to_lower()
+	var k := low.find("/binaries/")
+	if k > 0:
+		return path.substr(0, k)
+	return path.get_base_dir()
+
+var _measured := {}   # ids measured this session
+
+## Size of every game's folder on disk (du), saved with the game so it shows straight away
+## next time. Runs one game at a time so it never slows anything down.
+func measure_sizes() -> void:
+	for g in games:
+		var id := int(g.id)
+		if _measured.has(id) or not FileAccess.file_exists(str(g.path)):
+			continue
+		_measured[id] = true
+		var root := game_root(str(g.path))
+		if root == "" or root == "/" or root == OS.get_environment("HOME"):
+			continue
+		Sys.run("du", ["-sb", root], func(out: String, code: int):
+			var n := int(out.strip_edges().split("\t")[0]) if out.strip_edges() != "" else 0
+			if n > 0 and int(g.get("size", 0)) != n:
+				g["size"] = n
+				_save()
+			measure_sizes())
+		return
 
 static func id_for(path: String) -> int:
 	return -(absi(hash("local:" + path)) % 900000000 + 1000)
@@ -92,6 +124,7 @@ func add(path: String, name: String, steam_appid: int, art: Dictionary) -> Dicti
 		"art": art, "steam_appid": steam_appid, "added": int(Time.get_unix_time_from_system())}
 	games.append(g)
 	_save()
+	measure_sizes()
 	return g
 
 func update(id: int, key: String, value) -> void:
@@ -132,7 +165,7 @@ func scan() -> Array:
 		var on_usb := path.begins_with("/run/media/") or path.begins_with("/media/")
 		out.append({"appid": int(g.id), "name": str(g.name), "sort_name": str(g.name).to_lower(), "source": "usb" if on_usb else "local",
 			"kind": g.kind, "path": path, "installdir": path.get_base_dir(), "library": path.get_base_dir(),
-			"size": 0, "installed": present, "missing": not present, "updating": false, "progress": 0.0, "bytes_total": 0,
+			"size": int(g.get("size", 0)), "installed": present, "missing": not present, "updating": false, "progress": 0.0, "bytes_total": 0,
 			"last_updated": int(g.get("added", 0)), "last_played": 0, "playtime": 0, "flags": 4 if present else 0,
 			"steam_appid": int(g.get("steam_appid", 0)),
 			"is_app": str(g.get("type", "game")) == "app", "pointer": str(g.get("type", "game")) == "app"})

@@ -62,14 +62,14 @@ func build() -> void:
 	_preview_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_preview_name.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_preview_name.position = Vector2(20, 0)
-	_preview_name.size = Vector2(260, 450)
+	Tokens.fit(_preview_name, Vector2(260, 450))
 	_preview_glass.add_child(_preview_name)
 	_pop = Spring.preset(1.0, &"jelly")
 	var src := Tokens.label("", 16, 600, Tokens.INK_FAINT)
 	src.name = "src"
 	src.position = Vector2(58, 596)
-	src.size = Vector2(300, 60)
 	src.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	Tokens.fit(src, Vector2(300, 60))
 	_card.add_child(src)
 	src.text = ("On a USB drive" if path.begins_with("/run/media/") else "On this console") + "\n" + path.get_file()
 	_list = RowList.new()

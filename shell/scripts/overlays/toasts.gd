@@ -73,9 +73,9 @@ func show_data(d: Dictionary) -> void:
 		p.add_child(ic)
 	var tl := Tokens.label(title, 21 if not long_title else 19, 700)
 	tl.position = Vector2(84, 18 if body != "" else 22)
-	tl.size = Vector2(w - 104, 28)
 	tl.clip_text = true
 	tl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	Tokens.fit(tl, Vector2(w - 104, 28))
 	if long_title:
 		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		tl.max_lines_visible = 2
@@ -83,11 +83,11 @@ func show_data(d: Dictionary) -> void:
 		tl.clip_text = true
 		tl.position = Vector2(84, 14)
 		tl.custom_minimum_size = Vector2(w - 104, 0)
-		tl.size = Vector2(w - 104, tlines * 26.0)
+		Tokens.fit(tl, Vector2(w - 104, tlines * 26.0))
 	p.add_child(tl)
 	if long_title:
 		# Once in the tree, pin the width so the text wraps inside the card.
-		tl.size = Vector2(w - 104, tlines * 26.0)
+		Tokens.fit(tl, Vector2(w - 104, tlines * 26.0))
 		tl.set_deferred("size", Vector2(w - 104, tlines * 26.0))
 	if body != "":
 		var bl := Tokens.label(body, 17, 500, Tokens.INK_DIM)
@@ -100,7 +100,7 @@ func show_data(d: Dictionary) -> void:
 		p.add_child(bl)
 		var bh := 24.0 if not long_title else blines * 23.0
 		bl.custom_minimum_size = Vector2(w - 104, 0)
-		bl.size = Vector2(w - 104, bh)
+		Tokens.fit(bl, Vector2(w - 104, bh))
 		bl.set_deferred("size", Vector2(w - 104, bh))
 	add_child(p)
 	var s := Spring.preset(1.0, &"bouncy")

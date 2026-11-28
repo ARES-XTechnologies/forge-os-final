@@ -37,6 +37,25 @@ vec4 sample_cover(sampler2D tex, vec2 tsize, vec2 uv, float z, vec2 pan) {
 	return texture(tex, q);
 }
 
+// Smooth blur: 24 taps on a golden-angle spiral with a Gaussian weight, read from a mip level
+// that matches the radius. Reading a low mip level directly looks blocky (big square texels);
+// spreading many soft taps over it gives a clean, glassy blur at any radius.
+vec3 blur(sampler2D tex, vec2 uv, vec2 tsize, float px) {
+	float lod = max(0.0, log2(px / 6.0));
+	vec3 acc = vec3(0.0);
+	float wsum = 0.0;
+	for (int i = 0; i < 24; i++) {
+		float fi = float(i);
+		float r = sqrt((fi + 0.5) / 24.0);
+		float a = fi * 2.3999632;
+		vec2 o = vec2(cos(a), sin(a)) * r * px / tsize;
+		float w = exp(-r * r * 2.2);
+		acc += textureLod(tex, uv + o, lod).rgb * w;
+		wsum += w;
+	}
+	return acc / wsum;
+}
+
 // Full screen fitting.
 vec3 sample_full(sampler2D tex, vec2 tsize, int fit, vec2 uv, float z, vec2 pan) {
 	float ra = tsize.x / tsize.y;
@@ -52,7 +71,7 @@ vec3 sample_full(sampler2D tex, vec2 tsize, int fit, vec2 uv, float z, vec2 pan)
 			// soften the very bottom rows so the seam with the reflection disappears
 			float seam = smoothstep(BAND - 0.035, BAND, uv.y);
 			vec3 sharp = textureLod(tex, vec2(u, v), 0.0).rgb;
-			vec3 soft = textureLod(tex, vec2(u, v), 2.5).rgb * 0.85;
+			vec3 soft = blur(tex, vec2(u, v), tsize, 10.0) * 0.9;
 			return mix(sharp, soft, seam);
 		}
 		// mirrored below the band, blurring and dimming as it goes down (like a phone's
@@ -60,15 +79,15 @@ vec3 sample_full(sampler2D tex, vec2 tsize, int fit, vec2 uv, float z, vec2 pan)
 		float k = (uv.y - BAND) / (1.0 - BAND);
 		float v = 1.0 - (uv.y - BAND) / BAND;
 		v = (v - 0.5) / z + 0.5 + pan.y;
-		vec3 c = textureLod(tex, vec2(u, v), 2.5 + k * 3.0).rgb;
-		return c * mix(0.85, 0.55, k);
+		vec3 c = blur(tex, vec2(u, v), tsize, mix(10.0, 46.0, k));
+		return c * mix(0.88, 0.55, k);
 	}
 	if (fit == 2) {
 		// low-resolution picture: blurred colour fill
 		vec2 q = uv - 0.5;
 		if (ra > rs) { q.x *= rs / ra; } else { q.y *= ra / rs; }
 		q = q / (z * 1.15) + 0.5 + pan;
-		return textureLod(tex, q, 4.5).rgb * 0.8;
+		return blur(tex, q, tsize, 0.035 * max(tsize.x, tsize.y)) * 0.8;
 	}
 	// cover the whole screen; if the picture is taller than the screen keep its upper part
 	vec2 q = uv - 0.5;

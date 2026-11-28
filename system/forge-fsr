@@ -1,63 +1,136 @@
 #!/bin/bash
 # FORGE OS — FSR for every game.
-# Every game starts through this: Steam games via their launch options
-# ("/usr/lib/forge/forge-fsr %command%", added by FORGE), your own games via forge-run.
 #
-#   Off (default)       the game starts exactly as it would without FORGE: native resolution.
+# How it works (the same way the Steam Deck does it):
+# The console already runs inside gamescope. Before a game starts, FORGE tells that gamescope
+#   1. to give games a smaller screen (for example 1706x960 instead of 2560x1440), so the
+#      game renders fewer pixels and runs faster, and
+#   2. to upscale the picture to the real screen with AMD FSR 1.
+# When the game closes, the full-size screen and normal scaling come back.
+# (Earlier versions started a second gamescope inside the first. That second gamescope was
+# often bypassed, so the game kept rendering at full size and FSR had no effect.)
+#
+#   Off (default)       native resolution, no upscaling.
 #   Fidelity            FSR Quality: renders at 67% (1.5x) and FSR upscales to your screen.
 #   Balanced            FSR Balanced: renders at 59% (1.7x).
 #   Performance         FSR Performance: renders at 50% (2x).
 #   Ultra Performance   FSR Ultra Performance: renders at 33% (3x).
 # These are AMD's official FSR scale factors.
 #
-# The mode comes from Settings › Performance (all games) or a game's own options (one game):
+# Usage:
+#   forge-fsr <game command...>   apply FSR for the game, run it, restore afterwards
+#                                 (Steam games start like this: "forge-fsr %command%")
+#   forge-fsr --apply [appid]     apply the mode for a game (FORGE calls this at launch)
+#   forge-fsr --reset             back to native (FORGE calls this when the game closes)
+#   forge-fsr --status            print what gamescope is doing right now
+#
+# Settings come from Settings › Performance (all games) or a game's own options (one game):
 #   ~/.config/forge/fsr.conf        MODE=off|fidelity|balanced|performance|ultra
-#   ~/.config/forge/fsr-games.conf  <appid>=off|fidelity|balanced|performance|ultra   (overrides, one per line)
-# It's read at launch, so a change applies from the next time a game starts.
+#   ~/.config/forge/fsr-games.conf  <appid>=off|fidelity|balanced|performance|ultra
+# Games must run full screen (or "borderless" / "fullscreen windowed") at the desktop
+# resolution, which most do by default. A game that forces its own fixed resolution in its
+# settings ignores the smaller screen; lowering that game's own resolution still gets FSR
+# upscaling while FSR is on.
+
 CONF="$HOME/.config/forge"
-MODE=off
-# shellcheck disable=SC1091
-[ -f "$CONF/fsr.conf" ] && . "$CONF/fsr.conf"
+LOGDIR="$HOME/.local/share/forge/logs"
+LOG="$LOGDIR/fsr.log"
+mkdir -p "$LOGDIR" 2>/dev/null
+log() { echo "[$(date '+%F %T')] [forge-fsr] $*" >> "$LOG" 2>/dev/null; }
+
+# The console's own X display (FORGE's), where gamescope listens for these settings.
+X0="${FORGE_X_DISPLAY:-$DISPLAY}"
+
+mode_for() {
+	local appid="$1" MODE=off own
+	# shellcheck disable=SC1091
+	[ -f "$CONF/fsr.conf" ] && . "$CONF/fsr.conf"
+	if [ -n "$appid" ] && [ -f "$CONF/fsr-games.conf" ]; then
+		own=$(grep -E "^${appid}=" "$CONF/fsr-games.conf" | tail -n1 | cut -d= -f2)
+		[ -n "$own" ] && MODE="$own"
+	fi
+	echo "$MODE"
+}
+
+output_size() {
+	local WIDTH=0 HEIGHT=0 NW NH
+	# shellcheck disable=SC1091
+	[ -f "$CONF/session.conf" ] && . "$CONF/session.conf"
+	if [ "${WIDTH:-0}" -le 0 ] || [ "${HEIGHT:-0}" -le 0 ]; then
+		read -r NW NH _ < <(/usr/lib/forge/forge-display --native 2>/dev/null)
+		[ "${WIDTH:-0}" -le 0 ] && WIDTH=${NW:-1920}
+		[ "${HEIGHT:-0}" -le 0 ] && HEIGHT=${NH:-1080}
+	fi
+	echo "$WIDTH $HEIGHT"
+}
+
+# Which of gamescope's X servers the game draws on (0 = the console's own).
+server_index() {
+	if [ -n "$DISPLAY" ] && [ -n "$X0" ] && [ "$DISPLAY" != "$X0" ]; then echo 1; else echo 0; fi
+}
+
+setprop() {   # name value
+	[ -n "$X0" ] || return 1
+	command -v xprop >/dev/null || return 1
+	DISPLAY="$X0" timeout 3 xprop -root -f "$1" 32c -set "$1" "$2" 2>/dev/null
+}
+
+apply() {   # appid
+	local mode pm W H RW RH idx
+	mode=$(mode_for "$1")
+	case "$mode" in
+		fidelity) pm=667 ;;
+		balanced) pm=588 ;;
+		performance) pm=500 ;;
+		ultra) pm=333 ;;
+		*) reset quiet; log "off (app ${1:-?})"; return 0 ;;
+	esac
+	read -r W H < <(output_size)
+	RW=$(( W * pm / 1000 / 2 * 2 ))
+	RH=$(( H * pm / 1000 / 2 * 2 ))
+	idx=$(server_index)
+	# FSR filter (3 = FSR in gamescope), default sharpness, then the smaller game screen.
+	setprop GAMESCOPE_SCALING_FILTER 3
+	setprop GAMESCOPE_FSR_SHARPNESS 2
+	if setprop GAMESCOPE_XWAYLAND_MODE_CONTROL "$idx,$RW,$RH,0"; then
+		log "$mode: game renders ${RW}x${RH}, FSR upscales to ${W}x${H} (app ${1:-?}, display $DISPLAY, server $idx)"
+	else
+		log "$mode: could not reach gamescope on '${X0:-none}' (xprop missing?), FSR not applied"
+		return 1
+	fi
+	# Ask gamescope a little later whether FSR is really running, for the log.
+	( sleep 25; v=$(DISPLAY="$X0" timeout 3 xprop -root GAMESCOPE_FSR_FEEDBACK 2>/dev/null)
+	  log "gamescope reports: ${v:-no FSR feedback yet}" ) >/dev/null 2>&1 &
+	return 0
+}
+
+reset() {
+	local W H
+	read -r W H < <(output_size)
+	setprop GAMESCOPE_SCALING_FILTER 0
+	# gamescope reads this setting when it gets round to it, so give it a moment between the
+	# two displays (the console's own display last, so it's the one that sticks).
+	setprop GAMESCOPE_XWAYLAND_MODE_CONTROL "1,$W,$H,0"
+	sleep 0.4
+	setprop GAMESCOPE_XWAYLAND_MODE_CONTROL "0,$W,$H,0"
+	[ "$1" = quiet ] || log "back to native ${W}x${H}"
+}
+
 APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-${FORGE_APPID:-}}}"
-if [ -n "$APPID" ] && [ -f "$CONF/fsr-games.conf" ]; then
-	own=$(grep -E "^${APPID}=" "$CONF/fsr-games.conf" | tail -n1 | cut -d= -f2)
-	[ -n "$own" ] && MODE="$own"
-fi
 
-case "$MODE" in
-	fidelity) PM=667 ;;
-	balanced) PM=588 ;;
-	performance) PM=500 ;;
-	ultra) PM=333 ;;
-	*) echo "[$(date '+%F %T')] [forge-fsr] off (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log" 2>/dev/null; exec "$@" ;;
+case "$1" in
+	--apply) apply "${2:-$APPID}"; exit 0 ;;
+	--reset) reset; exit 0 ;;
+	--status)
+		DISPLAY="$X0" xprop -root GAMESCOPE_SCALING_FILTER GAMESCOPE_XWAYLAND_MODE_CONTROL GAMESCOPE_FSR_FEEDBACK 2>&1
+		exit 0 ;;
 esac
-command -v gamescope >/dev/null || exec "$@"
 
-# Output size: the console's resolution from Settings › Display.
-WIDTH=0; HEIGHT=0; REFRESH=0
-# shellcheck disable=SC1091
-[ -f "$CONF/session.conf" ] && . "$CONF/session.conf"
-if [ "${WIDTH:-0}" -le 0 ] || [ "${HEIGHT:-0}" -le 0 ] || [ "${REFRESH:-0}" -le 0 ]; then
-	read -r NW NH NHZ < <(/usr/lib/forge/forge-display --native 2>/dev/null)
-	[ "${WIDTH:-0}" -le 0 ] && WIDTH=${NW:-1920}
-	[ "${HEIGHT:-0}" -le 0 ] && HEIGHT=${NH:-1080}
-	[ "${REFRESH:-0}" -le 0 ] && REFRESH=${NHZ:-60}
-fi
-RW=$(( WIDTH * PM / 1000 / 2 * 2 ))
-RH=$(( HEIGHT * PM / 1000 / 2 * 2 ))
+[ $# -eq 0 ] && { echo "usage: forge-fsr <command...> | --apply [appid] | --reset | --status" >&2; exit 2; }
 
-ARGS=(-w "$RW" -h "$RH" -W "$WIDTH" -H "$HEIGHT" -r "$REFRESH" -F fsr -f)
-# Inside the console's own gamescope, the game's gamescope draws through X (most reliable).
-gamescope --help 2>&1 | grep -q -- '--backend' && ARGS+=(--backend sdl)
-# The game must present into THIS (inner) gamescope, which renders it small and upscales it.
-# It inherits the console's (outer) gamescope settings, though: with those, gamescope's Vulkan
-# layer sent the game's frames straight to the outer gamescope at full size, skipping FSR
-# entirely (no FPS gain, no lower resolution), and on some games failed with
-# "Gamescope WSI Layer Error: Creating swapchain for non-Gamescope swapchain".
-# So the outer gamescope's address is cleared and its layer is off for the inner one: the
-# game draws into the inner gamescope's own display, where FSR applies.
-unset GAMESCOPE_WAYLAND_DISPLAY
-export ENABLE_GAMESCOPE_WSI=0
-mkdir -p "$HOME/.local/share/forge/logs"
-echo "[$(date '+%F %T')] [forge-fsr] $MODE: ${RW}x${RH} -> ${WIDTH}x${HEIGHT} (app ${APPID:-?})" >> "$HOME/.local/share/forge/logs/fsr.log"
-exec gamescope "${ARGS[@]}" -- "$@"
+apply "$APPID"
+applied=$?
+"$@"
+code=$?
+[ "$(mode_for "$APPID")" != off ] && [ $applied -eq 0 ] && reset
+exit $code
